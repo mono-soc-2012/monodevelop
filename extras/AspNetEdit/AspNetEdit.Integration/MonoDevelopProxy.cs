@@ -35,10 +35,11 @@ using System.CodeDom;
 using System.Collections.Generic;
 
 using MonoDevelop.Ide;
+using MonoDevelop.Ide.TypeSystem;
+using MonoDevelop.Core;
 using MonoDevelop.Projects;
-using MonoDevelop.Projects.Dom;
-using MonoDevelop.Projects.Dom.Parser;
 using MonoDevelop.DesignerSupport;
+using ICSharpCode.NRefactory.TypeSystem;
 
 namespace AspNetEdit.Integration
 {
@@ -46,12 +47,25 @@ namespace AspNetEdit.Integration
 	public class MonoDevelopProxy : MarshalByRefObject, IDisposable
 	{
 		Project project;
-		string className;
+		IType fullClass;
+		IUnresolvedTypeDefinition nonDesignerClass;
 		
 		public MonoDevelopProxy (Project project, string className)
 		{
-			this.className = string.IsNullOrEmpty (className)? null : className;
 			this.project = project;
+			
+			if (className != null)
+				fullClass = System.Type.GetType (className).ToTypeReference ().Resolve (
+					TypeSystemService.GetProjectContext (project).CreateCompilation ()
+				);
+			else
+				fullClass = null;
+			
+			if (fullClass != null)
+				nonDesignerClass = MonoDevelop.DesignerSupport.CodeBehind.GetNonDesignerClass (fullClass);
+			else
+				nonDesignerClass = null;
+			
 		}
 		
 		//keep this object available through remoting
@@ -74,58 +88,34 @@ namespace AspNetEdit.Integration
 		
 		//TODO: make this work with inline code
 		#region event binding
-		
-		IType GetNonDesignerClass ()
-		{
-			ProjectDom ctx;
-			IType cls = GetFullClass (out ctx);
-			IType nonDesigner = MonoDevelop.DesignerSupport.CodeBehind.GetNonDesignerClass (cls);
-			return nonDesigner ?? cls;
-		}
-		
-		IType GetFullClass (out ProjectDom ctx)
-		{
-			if (project == null || className == null) {
-				ctx = null;
-				return null;
-			}
-			ctx = MonoDevelop.Projects.Dom.Parser.ProjectDomService.GetProjectDom (project);
-			return ctx.GetType (className, false, false);
-		}
-		
+
 		public bool IdentifierExistsInCodeBehind (string trialIdentifier)
 		{
-			ProjectDom ctx;
-			IType fullClass = GetFullClass (out ctx);
 			if (fullClass == null)
 				return false;
 			
-			return BindingService.IdentifierExistsInClass (ctx, fullClass, trialIdentifier);
+			return BindingService.IdentifierExistsInClass (fullClass, trialIdentifier);
 		}
 		
 		public string GenerateIdentifierUniqueInCodeBehind (string trialIdentifier)
 		{
-			ProjectDom ctx;
-			IType fullClass = GetFullClass (out ctx);
 			if (fullClass == null)
 				return trialIdentifier;
 			
-			return BindingService.GenerateIdentifierUniqueInClass (ctx, fullClass, trialIdentifier);
+			return BindingService.GenerateIdentifierUniqueInClass (fullClass, trialIdentifier);
 		}
 		
 		
 		public string[] GetCompatibleMethodsInCodeBehind (CodeMemberMethod method)
 		{
-			ProjectDom ctx;
-			IType fullClass = GetFullClass (out ctx);
 			if (fullClass == null)
 				return new string[0];
 			
-			IMethod MDMeth = BindingService.CodeDomToMDDomMethod (method);
+			IMethod MDMeth = (IMethod)BindingService.CodeDomToMDDomMethod (method); // IUnresolvedMethod to IMethod ??
 			if (MDMeth == null)
 				return null;
 			
-			List<IMethod> compatMeth = new List<IMethod> (BindingService.GetCompatibleMethodsInClass (ctx, fullClass, MDMeth));
+			List<IMethod> compatMeth = new List<IMethod> (BindingService.GetCompatibleMethodsInClass (fullClass, MDMeth));
 			string[] names = new string[compatMeth.Count];
 			for (int i = 0; i < names.Length; i++)
 				names[i] = compatMeth[i].Name;
@@ -134,15 +124,11 @@ namespace AspNetEdit.Integration
 		
 		public bool ShowMethod (CodeMemberMethod method)
 		{
-			ProjectDom ctx;
-			IType fullCls = GetFullClass (out ctx);
-			if (fullCls == null)
+			if (nonDesignerClass == null)
 				return false;
 			
-			IType codeBehindClass = MonoDevelop.DesignerSupport.CodeBehind.GetNonDesignerClass (fullCls) ?? fullCls;
-			
-			Gtk.Application.Invoke ( delegate {
-				BindingService.CreateAndShowMember (project, fullCls, codeBehindClass, method);
+			Gtk.Application.Invoke (delegate {
+				BindingService.CreateAndShowMember (project, fullClass.GetDefinition (), nonDesignerClass, method); 
 			});
 			
 			return true;
@@ -150,12 +136,15 @@ namespace AspNetEdit.Integration
 		
 		public bool ShowLine (int lineNumber)
 		{
-			IType codeBehindClass = GetNonDesignerClass ();
-			if (codeBehindClass == null)
+			if (nonDesignerClass == null)
 				return false;
 			
-			Gtk.Application.Invoke ( delegate {
-				IdeApp.Workbench.OpenDocument (codeBehindClass.CompilationUnit.FileName, lineNumber, 1, true);
+			Gtk.Application.Invoke (delegate {
+				IdeApp.Workbench.OpenDocument (
+					new FilePath (nonDesignerClass.ParsedFile.FileName),
+					lineNumber, 
+					1,
+					MonoDevelop.Ide.Gui.OpenDocumentOptions.Default);
 			});
 			
 			return true;
@@ -163,5 +152,4 @@ namespace AspNetEdit.Integration
 		
 		#endregion event binding
 	}
-	
 }

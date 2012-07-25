@@ -38,30 +38,26 @@ using System.Drawing.Design;
 using System.IO;
 using System.Web.UI;
 using System.Web.UI.Design;
-using AspNetEdit.Editor.Persistence;
+
+using MonoDevelop.SourceEditor;
+using MonoDevelop.AspNet;
+using MonoDevelop.AspNet.Parser;
 
 namespace AspNetEdit.Editor.ComponentModel
 {
 	public class DesignerHost : IDesignerHost, IDisposable
 	{
 		private ServiceContainer parentServices;
-		private WebFormReferenceManager referenceManager;
 
 		public DesignerHost (ServiceContainer parentServices)
 		{
 			this.parentServices = parentServices;
 			container = new DesignContainer (this);
-			referenceManager = new WebFormReferenceManager (this);
+			container.ComponentChanged += new ComponentChangedEventHandler (OnComponentUpdated);
 
 			//register services
 			parentServices.AddService (typeof (IDesignerHost), this);
 			parentServices.AddService (typeof (IComponentChangeService), container);
-			parentServices.AddService (typeof (IWebFormReferenceManager), referenceManager);		
-		}
-
-		public WebFormReferenceManager WebFormReferenceManager
-		{
-			get { return referenceManager; }
 		}
 
 		#region Component management
@@ -117,6 +113,17 @@ namespace AspNetEdit.Editor.ComponentModel
 		public IComponent CreateComponent (Type componentClass)
 		{
 			return CreateComponent (componentClass, null);
+		}
+
+		public IComponent GetComponent (string name)
+		{
+			return container.GetComponent (name);
+		}
+
+		public void OnComponentUpdated (object o, ComponentChangedEventArgs args)
+		{
+			// FIXME: a bug in ComponentChangedEventArgs - switches the return value of NewValue and OldValue
+			this.RootDocument.UpdateTag (args.Component as IComponent, args.Member, args.OldValue);
 		}
 
 		public void DestroyComponent (IComponent component)
@@ -190,6 +197,11 @@ namespace AspNetEdit.Editor.ComponentModel
 		}
 
 		#endregion
+
+		public void UpdateNode (string id, IComponent updatedState)
+		{
+			//rootDocument.UpdateTag (id, updatedState as Control);
+		}
 
 		#region Transaction stuff
 
@@ -307,6 +319,79 @@ namespace AspNetEdit.Editor.ComponentModel
 			if (Deactivated != null)
 				Deactivated (this, EventArgs.Empty);
 		}
+		
+		public void NewFile ()
+		{
+			if (activated || RootComponent != null)
+				throw new InvalidOperationException ("You must reset the host before loading another file.");
+			loading = true;
+
+			this.Container.Add (new WebFormPage ());
+			this.rootDocument = new Document ((Control)rootComponent, this, "New Document");
+
+			loading = false;
+			OnLoadComplete ();
+		}
+
+//		public void Load (Stream file, string fileName)
+//		{
+//			using (TextReader reader = new StreamReader (file))
+//			{
+//				Load (reader.ReadToEnd (), fileName);
+//			}
+//		}
+		
+		public void Load (ExtensibleTextEditor txtEditor)
+		{
+			if (activated || RootComponent != null)
+				throw new InvalidOperationException ("You must reset the host before loading another file.");
+			loading = true;
+
+			this.Container.Add (new WebFormPage());
+			this.rootDocument = new Document ((Control)rootComponent, this, txtEditor);
+
+			loading = false;
+			OnLoadComplete ();
+		}
+		
+//		public void DisplayDesignerSurface ()
+//		{
+//			// TODO: check for activated, loaded document etc.
+//			rootDocument.ShowDesignerSurface ();
+//		}
+		
+		public string GetDesignableHtml ()
+		{
+			// TODO: strip user's JS. Add AspNetEdit's JS
+			// TODO: IDesigners for ASP.NET controls components
+			
+			return  rootDocument.ToDesignTimeHtml ();
+		}
+
+		public void Reset ()
+		{
+			//container automatically destroys all children when this happens
+			if (rootComponent != null)
+				DestroyComponent (rootComponent);
+
+			if (activated) {
+				OnDeactivated ();
+				this.activated = false;
+			}
+		}
+
+//		public void SaveDocumentToFile (Stream file)
+//		{
+//			StreamWriter writer = new StreamWriter (file);
+//
+//			writer.Write(RootDocument.PersistDocument ());
+//			writer.Flush ();
+//		}
+//		
+//		public string PersistDocument ()
+//		{
+//			return RootDocument.PersistDocument ();
+//		}
 
 		#endregion 
 
@@ -373,66 +458,6 @@ namespace AspNetEdit.Editor.ComponentModel
 
 		#endregion
 
-
-		public void NewFile ()
-		{
-			if (activated || RootComponent != null)
-				throw new InvalidOperationException ("You must reset the host before loading another file.");
-			loading = true;
-
-			this.Container.Add (new WebFormPage ());
-			this.rootDocument = new Document ((Control)rootComponent, this, "New Document");
-
-			loading = false;
-			OnLoadComplete ();
-		}
-
-		public void Load (Stream file, string fileName)
-		{
-			using (TextReader reader = new StreamReader (file))
-			{
-				Load (reader.ReadToEnd (), fileName);
-			}
-		}
-		
-		public void Load (string document, string fileName)
-		{
-			if (activated || RootComponent != null)
-				throw new InvalidOperationException ("You must reset the host before loading another file.");
-			loading = true;
-
-			this.Container.Add (new WebFormPage());
-			this.rootDocument = new Document ((Control)rootComponent, this, document, fileName);
-
-			loading = false;
-			OnLoadComplete ();
-		}
-
-		public void Reset ()
-		{
-			//container automatically destroys all children when this happens
-			if (rootComponent != null)
-				DestroyComponent (rootComponent);
-
-			if (activated) {
-				OnDeactivated ();
-				this.activated = false;
-			}
-		}
-
-		public void SaveDocumentToFile (Stream file)
-		{
-			StreamWriter writer = new StreamWriter (file);
-
-			writer.Write(RootDocument.PersistDocument ());
-			writer.Flush ();
-		}
-		
-		public string PersistDocument ()
-		{
-			return RootDocument.PersistDocument ();
-		}
-		
 		/*TODO: Some .NET 2.0 System.Web.UI.Design.WebFormsRootDesigner methods
 		public abstract void RemoveControlFromDocument(Control control);
 		public virtual void SetControlID(Control control, string id);

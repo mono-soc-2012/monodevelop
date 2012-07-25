@@ -32,49 +32,56 @@ using System;
 using System.Text;
 using System.Web.UI;
 using System.Web.UI.WebControls;
+using System.Web.UI.HtmlControls;
 using System.IO;
 using System.ComponentModel.Design;
 using System.Collections;
-using AspNetEdit.Editor.Persistence;
+using System.Collections.Generic;
 using System.ComponentModel;
-using AspNetEdit.Editor.ComponentModel;
 using System.Globalization;
-using AspNetEdit.Editor.UI;
 using System.Reflection;
+
+using MonoDevelop.Xml.StateEngine;
+using MonoDevelop.AspNet;
+using MonoDevelop.AspNet.Parser;
+using MonoDevelop.AspNet.StateEngine;
+using MonoDevelop.SourceEditor;
+
+using ICSharpCode.NRefactory;
+using ICSharpCode.NRefactory.TypeSystem;
 
 namespace AspNetEdit.Editor.ComponentModel
 {
 	public class Document
 	{
 		public static readonly string newDocument = "<html>\n<head>\n\t<title>{0}</title>\n</head>\n<body>\n<form runat=\"server\">\n\n</form></body>\n</html>";
-		public static readonly string ControlSubstituteStructure = "<aspcontrol id=\"{0}\" width=\"{1}\" height=\"{2}\" -md-can-drop=\"{3}\" -md-can-resize=\"{4}\">{5}</aspcontrol>";
-		public static readonly string DirectivePlaceholderStructure = "<directiveplaceholder id=\"{0}\" />";
 
-		string document;
 		Hashtable directives;
-		private int directivePlaceholderKey = 0;
+		int directivePlaceHolderKey = 0;
 
 		private Control parent;
 		private DesignerHost host;
-		private RootDesignerView view;
-		private DesignTimeParser aspParser;
+
+		AspNetParser parser;
+		AspNetParsedDocument aspNetDoc;
+		ExtensibleTextEditor textEditor;
+		bool txtDocDirty; // notes when the content of the textEditor doesn't match the content of the XDocument
+		string designableHtml = String.Empty;
+		string designerContext = String.Empty;
 		
 		///<summary>Creates a new document</summary>
 		public Document (Control parent, DesignerHost host, string documentName)
 		{
 			initDocument (parent, host);
-			this.document = String.Format (newDocument, documentName);
-			GetView ();
+			Parse (String.Format (newDocument, documentName), documentName);
+			// TODO: get a ExtensibleTextEditor instance, if we have an new empty file
 		}
 		
 		///<summary>Creates a document from an existing file</summary>
-		public Document (Control parent, DesignerHost host, string document, string fileName)
+		public Document (Control parent, DesignerHost host, ExtensibleTextEditor txtEditor)
 		{
+			textEditor = txtEditor;
 			initDocument (parent, host);
-			
-			Control[] controls;
-			aspParser.ProcessFragment (document, out controls, out this.document);
-			GetView ();
 		}
 		
 		private void initDocument (Control parent, DesignerHost host)
@@ -82,185 +89,625 @@ namespace AspNetEdit.Editor.ComponentModel
 			System.Diagnostics.Trace.WriteLine ("Creating document...");
 			if (!(parent is WebFormPage))
 				throw new NotImplementedException ("Only WebFormsPages can have a document for now");
-			this.parent =  parent;
+			this.parent = parent;
 			this.host = host;
 			
 			if (!host.Loading)
 				throw new InvalidOperationException ("The document cannot be initialised or loaded unless the host is loading"); 
 
-			CaseInsensitiveHashCodeProvider provider = new CaseInsensitiveHashCodeProvider(CultureInfo.InvariantCulture);
-			CaseInsensitiveComparer comparer = new CaseInsensitiveComparer(CultureInfo.InvariantCulture);
-			directives = new Hashtable (provider, comparer);
-			
-			this.aspParser = new DesignTimeParser (host, this);
-		}
-		
-		private void GetView ()
-		{
-			IRootDesigner rd = (IRootDesigner) host.GetDesigner (host.RootComponent);
-			this.view = (RootDesignerView) rd.GetView (ViewTechnology.Passthrough);
-			
-			view.BeginLoad ();
-			System.Diagnostics.Trace.WriteLine ("Document created.");
+			parser = new AspNetParser ();
+			directives = null;
+			aspNetDoc = null;
+			txtDocDirty = true;
+			InitDesignerContext ();
 		}
 
-		#region Some Gecko communication stuff
-		
-		//we don't want to have the document lying around forever, but we
-		//want the RootDesignerview to be able to get it when Gecko XUL loads
-		public string GetLoadedDocument ()
+		public void InitDesignerContext ()
 		{
-			if (document == null)
-				throw new Exception ("The document has already been retrieved");
-			//TODO: substitute all components
-			string doc = document;
-			document = null;
-			return doc;
+			string scriptTag = "\n<script type=\"text/javascript\" src=\"{0}\"></script>";
+			string cssLinkTag = "\n<link rel=\"stylesheet\" type=\"text/css\" href=\"{0}\" />";
+
+			string scriptDir = "js";
+			string[] scripts = {
+				"jquery-1.7.2.min.js",
+				"main.js",
+				"handlers.js"
+			};
+			string styleDir = "css";
+			string[] styleSheets = {
+				"control_style.css"
+			};
+
+			designerContext = String.Empty;
+			foreach (string script in scripts)
+				designerContext += String.Format (scriptTag, Path.Combine (scriptDir, script));
+			foreach (string styleFile in styleSheets)
+				designerContext += String.Format (cssLinkTag, Path.Combine (styleDir, styleFile));
+
+			designerContext += "\n";
 		}
-		
-		///<summary>Serialises the entire document to ASP.NET code</summary>
-		public string PersistDocument ()
+
+		public void PersistDocument ()
 		{
-			StringBuilder builder = new StringBuilder(this.Serialize (view.GetDocument ()));
-			
-			//insert all remaining directives
-			for (int i = 0; i <= directivePlaceholderKey; i++)
-			{
-				builder.Insert (0, RemoveDirective(i));
+			System.Threading.Thread worker = new System.Threading.Thread (new System.Threading.ThreadStart(StartPersistingDocument));
+			worker.Start ();
+		}
+
+		public void StartPersistingDocument ()
+		{
+			OnChanging ();
+			try {
+				// parse the contents of the textEditor
+				Parse ();
+	
+				// initializing the dicts of directives and controls tags
+				if (directives == null) {
+					directives = new Hashtable (StringComparer.InvariantCultureIgnoreCase);
+					CheckForDirective (aspNetDoc.XDocument.AllDescendentNodes);
+					ParseControls ();
+				}
+	
+				// serialize the tree to designable HTML
+				designableHtml = serializeNode (aspNetDoc.XDocument.RootElement);
+			} catch (Exception ex) {
+				System.Diagnostics.Trace.WriteLine (ex.ToString ());
 			}
-			
-			return builder.ToString ();
+			OnChanged ();
 		}
-		
-		public void DoCommand (string editorCommand)
+
+
+		#region StateEngine parser
+
+		/// <summary>
+		/// Parse the TextEditor.Text document and tracks the txtDocDirty flag.
+		/// </summary>
+		AspNetParsedDocument Parse ()
 		{
-			view.DoCommand (editorCommand);
+			if (txtDocDirty) {
+				aspNetDoc = Parse (textEditor.Text, textEditor.FileName);
+				txtDocDirty = false;
+			}
+			return aspNetDoc;
 		}
-		
+
+		AspNetParsedDocument Parse (string doc, string fileName)
+		{
+			AspNetParsedDocument parsedDoc = null;
+			using (StringReader strRd = new StringReader (doc)) {
+				parsedDoc = parser.Parse (true, fileName, strRd, textEditor.Project) as AspNetParsedDocument;
+			}
+			return parsedDoc;
+		}
+
+		void CheckForDirective (IEnumerable<XNode> nodes)
+		{
+			foreach (XNode node in nodes) {
+				if (node is XContainer) {
+					var container = node as XContainer;
+					CheckForDirective (container.AllDescendentNodes);
+	
+				} else if (node is AspNetDirective) {
+					var directive = node as AspNetDirective;
+					var properties = new Hashtable (StringComparer.InvariantCultureIgnoreCase);
+					foreach (XAttribute attr in directive.Attributes)
+						properties.Add (attr.Name.Name, attr.Value);
+					AddDirective (directive.Name.Name, properties);
+				}
+			}
+		}
+
+		void ParseControls ()
+		{
+			// the method check for control may change the document
+			// so we parse the document each time it does
+			do {
+				var doc = Parse ();
+				CheckForControl (doc.XDocument.RootElement);
+			} while (txtDocDirty);
+		}
+
+		void CheckForControl (XNode node)
+		{
+			if (!(node is XElement))
+				return;
+
+			var element = node as XElement;
+
+			if (element.Name.HasPrefix || IsRunAtServer (element)) {
+				string id = GetAttributeValueCI (element.Attributes, "id");
+
+				try {
+					// check the DesignContainer if a component for that node already exists
+					if (string.IsNullOrEmpty(id) || (host.GetComponent(id) == null)) {
+						IComponent comp = ProcessControl (element);
+						if (comp != null) {
+							this.host.Container.Add (comp, id);
+	
+							// add id to the component, for later recognition
+							if (id == string.Empty) {
+								InsertAttribute (element, "id", comp.Site.Name);
+
+								return;
+							}
+						}
+					}
+					// add runat="server", if the element isn't marked
+					if (!IsRunAtServer(element)) {
+						InsertAttribute (element, "runat", "server");
+						return;
+					}
+				} catch (Exception ex) {
+					System.Diagnostics.Trace.WriteLine (ex.ToString ());
+				}
+			}
+
+			foreach (XNode nd in element.Nodes) {
+				if (txtDocDirty)
+					return;
+
+				CheckForControl (nd);
+			}
+				
+		}
+
+		// adds an attribute to the end of the openning  tag
+		void InsertAttribute (XElement el, string key, string value)
+		{
+			int line = el.Region.EndLine;
+			int column = 1;
+			string preambula = string.Empty;
+			string ending = string.Empty;
+
+			if (el.IsSelfClosing) {
+				column = el.Region.EndColumn - 2; // "/>"
+				ending = " ";
+			} else {
+				column = el.Region.EndColumn -1; // ">"
+			}
+
+			if (column > 1) {
+				string whatsBeforeUs = textEditor.GetTextBetween (line, column - 1, line, column);
+				if (!string.IsNullOrWhiteSpace (whatsBeforeUs))
+					preambula = " ";
+			}
+
+			textEditor.SetCaretTo (line, column);
+			textEditor.InsertAtCaret (string.Format ("{0}{1}=\"{2}\"{3}", preambula, key, value, ending));
+
+			txtDocDirty = true;
+		}
+
+		void UpdateAttribute (XAttribute attr, string newValue)
+		{
+			textEditor.Remove (attr.Region);
+			textEditor.SetCaretTo (attr.Region.BeginLine, attr.Region.BeginColumn);
+			textEditor.InsertAtCaret (String.Format ("{0}=\"{1}\"", attr.Name.Name, newValue));
+			
+			txtDocDirty = true;
+		}
+
+		public void UpdateTag (string id, Control updatedControl)
+		{
+			try {
+				Dictionary <string, string> properties = new Dictionary<string, string> (StringComparer.InvariantCultureIgnoreCase);			// we need the type to get the properties
+				System.Type controlType = updatedControl.GetType ();
+	
+				// filter the properties to get the changed ones
+				var collection = TypeDescriptor.GetProperties (controlType, new Attribute[] {BrowsableAttribute.Yes}) as PropertyDescriptorCollection;
+	
+				foreach (PropertyDescriptor desc in collection) {
+					try {
+					var defVal = desc.Attributes[typeof (DefaultValueAttribute)] as DefaultValueAttribute;
+
+					if ((defVal != null) && !desc.GetValue(updatedControl).Equals(defVal.Value)) {
+						
+						// workaround for a bug in System.Web.UI.Control
+						// the DefaultValueAttribute is set to a string - "0", while it should be of enum ViewStateMode
+						// and so that the ViewStateMode property appears to always have a value different from the default
+						if (desc.Name == "ViewStateMode") {
+							var val = (ViewStateMode)desc.GetValue (updatedControl);
+							if (val == ViewStateMode.Inherit) // ViewStateMode.Inherit is the default
+								continue;
+						}
+
+						var converter = TypeDescriptor.GetConverter (desc.PropertyType) as TypeConverter;
+						if (converter != null) {
+							properties.Add (desc.Name, converter.ConvertToString (desc.GetValue (updatedControl)));
+						} else
+							properties.Add (desc.Name, desc.GetValue (updatedControl).ToString ());
+					}
+					} catch (Exception ex) {
+						// something
+						System.Diagnostics.Trace.WriteLine (ex.ToString ());
+					}
+				}
+	
+				// get the tag node
+				AspNetParsedDocument doc = Parse ();
+				XElement el = GetControlTag (doc.XDocument.RootElement, id);
+				if (el == null)
+					throw new Exception ("Could not find element with id = " + id);
+	
+				// if the id was changed. i.e. is in the filtered properties
+				if (properties.ContainsKey("id")) {
+					if (host.GetComponent (properties["id"]) != null)
+						throw new Exception ("Element with that name already excists: "); // TODO: display warning instead of exception
+	
+					// update the key of the component in the IContainer
+					host.Container.Remove (updatedControl);
+					host.Container.Add (updatedControl, properties["id"]);
+				}
+	
+				// add to the properies array all the attributes that weren't changed
+				foreach (XAttribute attr in el.Attributes) {
+					if (!properties.ContainsKey (attr.Name.Name)) 
+						properties[attr.Name.Name] = attr.Value;
+				}
+	
+				// build the new node
+				string attributes = string.Empty;
+	
+				foreach (KeyValuePair<string, string> kv in properties)
+					attributes += string.Format (" {0}=\"{1}\"", kv.Key, kv.Value);
+	
+				string newTag = string.Format ("<{0}{1}{2}>", el.Name.FullName, attributes, el.IsSelfClosing ? " /" : "");
+	
+				// and replace the node in the TextEditor
+				textEditor.Remove (el.Region);
+				textEditor.SetCaretTo (el.Region.BeginLine, el.Region.BeginColumn);
+				textEditor.InsertAtCaret (newTag);
+			} catch (Exception ex) {
+				System.Diagnostics.Trace.WriteLine (ex.ToString ());
+			}
+
+			// update the document's representation
+			txtDocDirty = true;
+			PersistDocument ();
+		}
+
+		public void UpdateTag (IComponent component, MemberDescriptor memberDesc, object newVal)
+		{
+			string key = String.Empty;
+			string value = String.Empty;
+			AspNetParsedDocument doc = Parse ();
+			XElement el = GetControlTag (doc.XDocument.RootElement, component.Site.Name);
+
+			if (memberDesc is PropertyDescriptor) {
+				var propDesc = memberDesc as PropertyDescriptor;
+				key = memberDesc.Name;
+				value = propDesc.Converter.ConvertToString (newVal);
+			} else if (memberDesc is EventDescriptor) {
+				//var eventDesc = memberDesc as EventDescriptor;
+				//key = "On" + eventDesc.Name;
+				// TODO: get the handler method name
+				//value = newVal.ToString ();
+			} else {
+				// well, well, well! what do we have here!
+			}
+
+			bool found = false;
+
+			// check if the changed attribute was already in the tag 
+			foreach (XAttribute attr in el.Attributes) {
+				if (attr.Name.Name.ToLower () == key.ToLower ()) {
+					UpdateAttribute (attr, value);
+					found = true;
+					break;
+				}
+			}
+
+			// if it was not in the tag, add it
+			if (!found) {
+				InsertAttribute (el, key, value);
+			}
+
+			txtDocDirty = true;
+			PersistDocument ();
+		}
+
+		XElement GetControlTag (XElement container, string id)
+		{
+			XElement controlTag = null;
+			foreach (XNode node in container.Nodes) {
+				if (controlTag != null) {
+					break;
+				}
+				if (node is XElement) {
+					XElement el = node as XElement;
+					string currId = GetAttributeValueCI (el.Attributes, "id");
+					if (IsRunAtServer (el) && (string.Compare(currId, id, true) == 0)) {
+						controlTag = el;
+						break;
+					}
+					controlTag = GetControlTag (el, id);
+				} 
+			}
+			return controlTag;
+		}
+
 		#endregion
 		
-		#region Serialisation stuff
-		
-		///<summary>Converts a designer document fragment to ASP.NET code</summary>
-		public string Serialize (string designerDocumentFragment)
+		#region Designer communication
+
+		public string ToDesignTimeHtml ()
 		{
-			if (host == null)
-				throw new Exception("The document cannot be persisted without a host");
-			
-			string serializedDoc = string.Empty;
-			StringWriter writer = new StringWriter ();
-			
-			//keep method argument meaningfully named, but keep code readable!
-			string frag = designerDocumentFragment;
-			int length = frag.Length;
-			
-			int pos = 0;
-			SMode mode = SMode.Free;
-			
-			while (pos < length)
-			{
-				char c = frag [pos];
-				
-				switch (mode)
-				{
-					//it's freely copying to output, but watching for a directive or control placeholder 
-					case SMode.Free:
-						if (c == '<')
-						{
-							if ((pos + 10 < length) && frag.Substring (pos + 1, 10) == "aspcontrol") {
-								mode = SMode.ControlId;
-								pos += 10;
-								break;
-							}
-							else if ((pos + 20 < length) && frag.Substring (pos + 1, 20) == "directiveplaceholder") {
-								mode = SMode.DirectiveId;
-								pos += 20;
-								break;
-							}
-						}
-						
-						writer.Write (c);
-						break;
-					
-					//it's found a directive placeholder and is scanning for the ID
-					case SMode.DirectiveId:
-						if (c == 'i' && (pos + 4 < length) && frag.Substring (pos, 4) == "id=\"") {
-							int idEnd = frag.IndexOf ('"', pos + 4 + 1);
-							if (idEnd == -1) throw new Exception ("Identifier was unterminated");
-							int id  = Int32.Parse (frag.Substring (pos + 4, (idEnd - pos - 4)));
-							
-							//TODO: more intelligent removal/copying of directives in case of fragments
-							//works fine with whole document.
-							string directive = RemoveDirective (id);
-							writer.Write (directive);				
-							
-							mode = SMode.DirectiveEnd;
-							pos = idEnd;
-						}
-						break;
-					
-					//it's found a control placeholder and is scanning for the ID
-					case SMode.ControlId:
-						if (c == 'i' && (pos + 4 < length) && frag.Substring (pos, 4) == "id=\"") {
-							int idEnd = frag.IndexOf("\"", pos + 4);
-							if (idEnd == -1) throw new Exception ("Identifier was unterminated");
-							string id  = frag.Substring (pos + 4, (idEnd - pos - 4));		
-							
-							DesignContainer dc = (DesignContainer) host.Container;
-							Control control = dc.GetComponent (id) as Control;
-							if (control == null) throw new Exception ("Could not retrieve control "+id);
-							ControlPersister.PersistControl (writer, control);
-							
-							mode = SMode.ControlEnd;
-							pos = idEnd;
-						}
-						break;
-					
-					//it's found the control's ID and is looking for the end
-					case SMode.ControlEnd:
-						if (c == '<' && (pos + 13 < length) && frag.Substring (pos, 13) == "</aspcontrol>") {
-							pos += 12;
-							mode = SMode.Free;
-						}
-						break;
-					
-					//it's found the placeholder's ID and is looking for the end
-					case SMode.DirectiveEnd:
-						if (c == '/' && (pos + 2 < length) && frag.Substring (pos, 2) == "/>") {
-							pos += 1;
-							mode = SMode.Free;
-						}
-						break;
+			// serialize everything insed the <html> tag
+			return designableHtml;
+		}
+
+		public event EventHandler Changing;
+		public event EventHandler Changed;
+
+		public void OnChanged ()
+		{
+			if (Changed != null)
+				Changed (this, EventArgs.Empty);
+		}
+
+		public void OnChanging ()
+		{
+			if (Changing != null)
+				Changing (this, EventArgs.Empty);
+		}
+
+		#endregion
+		
+		#region Serialization
+		
+		TextLocation prevTagLocation = new TextLocation (TextLocation.MinLine, TextLocation.MinColumn);
+		
+		string serializeNode (MonoDevelop.Xml.StateEngine.XNode node)
+		{
+			prevTagLocation = node.Region.End;
+
+			var element = node as XElement;
+
+			if (element == null) {
+
+				return string.Empty;
+			}
+
+			string id = GetAttributeValueCI (element.Attributes, "id");
+
+			// Controls are runat="server" and have unique id in the Container
+			if (IsRunAtServer (element) && !string.IsNullOrEmpty (id)) {
+				IComponent component = host.GetComponent (id);
+
+				// HTML controls, doesn't need special rendering
+				var control = component as WebControl;
+
+				// genarete placeholder
+				if (control != null) {
+					string content = "<div class=\"aspnetedit_control_container\">";
+					StringWriter strWriter = new StringWriter ();
+					HtmlTextWriter writer = new HtmlTextWriter (strWriter);
+					control.RenderControl (writer);
+					writer.Close ();
+					strWriter.Flush ();
+					content += strWriter.ToString ();
+					content += "</div>";
+					strWriter.Close ();
+					return content;
 				}
-				
-				pos++;
+			}
+
+			// strip script tags
+			if (element.Name.Name.ToLower () == "script")
+				return string.Empty;
+
+			// the node is a html element
+			string output = "<" + element.Name.FullName;
+			
+			// print the attributes
+			foreach (MonoDevelop.Xml.StateEngine.XAttribute attr in element.Attributes) {
+				string name = attr.Name.Name.ToLower ();
+				// strip runat and on* event attributes
+				if ((name != "runat") && (name.Substring (0, 2).ToLower () != "on"))
+					output += " " + attr.Name.FullName + "=\"" + attr.Value + "\"";
 			}
 			
-			serializedDoc = writer.ToString ();
-			writer.Close ();
+			if (element.IsSelfClosing) {
+				output += " />";
+			} else {
+				output += ">";
 
-			return serializedDoc;
+				// we are currentyl on the head tag
+				// add designer content - js and css
+				if (element.Name.Name.ToString () == "head") {
+					output += designerContext;
+				}
+				
+				// serializing the childnodes if any
+				foreach (MonoDevelop.Xml.StateEngine.XNode nd in element.Nodes) {
+					// get the text before the openning tag of the child element
+					output += GetTextFromEditor (prevTagLocation, nd.Region.Begin);
+					// and the element itself
+					output += serializeNode (nd);
+				}
+				
+				// printing the text after the closing tag of the child elements
+				int lastChildEndLine = element.Region.EndLine;
+				int lastChildEndColumn = element.Region.EndColumn;
+				
+				// if the element have 1+ children
+				if (element.LastChild != null) {
+					var lastChild = element.LastChild as MonoDevelop.Xml.StateEngine.XElement;
+					// the last child is an XML tag
+					if (lastChild != null) {
+						// the tag is selfclosing
+						if (lastChild.IsSelfClosing) {
+							lastChildEndLine = lastChild.Region.EndLine;
+							lastChildEndColumn = lastChild.Region.EndColumn;
+							// the tag is not selfclosing and has a closing tag
+						} else if (lastChild.ClosingTag != null) {
+							lastChildEndLine = lastChild.ClosingTag.Region.EndLine;
+							lastChildEndColumn = lastChild.ClosingTag.Region.EndColumn;
+						} else {
+							// TODO: the element is not closed. Warn the user
+						}
+						// the last child is not a XML element. Probably AspNet tag. TODO: find the end location of that tag
+					} else {
+						lastChildEndLine = element.LastChild.Region.EndLine;
+						lastChildEndLine = element.LastChild.Region.EndLine;
+					}
+				}
+				
+				if (element.ClosingTag != null) {
+					output += GetTextFromEditor (new TextLocation (lastChildEndLine, lastChildEndColumn), element.ClosingTag.Region.Begin);
+					prevTagLocation = element.ClosingTag.Region.End;
+				} else {
+					// TODO: the element is not closed. Warn the user
+				}
+				
+				output += "</" + element.Name.FullName + ">";
+			}
+			
+			return output;
 		}
-		
-		public void InitialiseControls (IEnumerable controls)
+
+		private string GetTextFromEditor (TextLocation start, TextLocation end)
 		{
-			foreach (Control c in controls)
-				InitialiseControl(c);
+			if (textEditor == null)
+				throw new NullReferenceException ("The SourceEditorView is not set. Can't process document for text nodes.");
+
+			return textEditor.GetTextBetween (start.Line, start.Column, end.Line, end.Column);
 		}
-		
-		public static void InitialiseControl (Control control)
+
+		private IComponent ProcessControl (XElement element)
 		{
-			OnInitMethodInfo.Invoke (control, new object[] {EventArgs.Empty});
+			// get the control's Type
+			System.Type controlType = null;
+
+			if (element.Name.HasPrefix) {
+				// assuming ASP.NET control
+				var refMan = host.GetService (typeof(WebFormReferenceManager)) as WebFormReferenceManager;
+				if (refMan == null) {
+					throw new ArgumentNullException ("The WebFormReferenceManager service is not set");
+				}
+				string typeName = refMan.GetTypeName (element.Name.Prefix, element.Name.Name);
+				controlType = typeof(System.Web.UI.WebControls.WebControl).Assembly.GetType (typeName, true, true);
+			} else {
+				// if no perfix was found. we have a HtmlControl
+				controlType = GetHtmlControlType (element);
+			}
+			if (controlType == null)
+				return null;
+				//throw new Exception ("Could not determine the control type for element " + element.FriendlyPathRepresentation);
+
+			IComponent component = Activator.CreateInstance (controlType) as IComponent;
+
+			// Since we have no Designers the TypeDescriptorsFilteringService won't work :(
+			// looking for properties and events declared as attributes of the server control node
+			Attribute[] filter = new Attribute[] { BrowsableAttribute.Yes};
+			PropertyDescriptorCollection pCollection = TypeDescriptor.GetProperties (controlType, filter);
+			PropertyDescriptor desc = null;
+//			EventDescriptorCollection eCollection = TypeDescriptor.GetEvents (controlType, filter);
+//			EventDescriptor evDesc = null;
+
+			foreach (XAttribute attr in element.Attributes) {
+				desc = pCollection.Find (attr.Name.Name, true);
+				if (desc != null) {
+					var converter = TypeDescriptor.GetConverter (desc.PropertyType) as TypeConverter;
+					if (converter != null) {
+						desc.SetValue (component, converter.ConvertFromString (attr.Value));
+					} else {
+						throw new NotSupportedException ("No TypeConverter found for property of type " + desc.PropertyType.Name);
+					}
+				} //else if (attr.Name.Name.Contains ("On")) {
+					// TODO: filter events for the component  !?
+//					string eventName = attr.Name.Name.Replace ("On", string.Empty);
+//					evDesc = eCollection.Find (eventName, true);
+//					if (evDesc != null) {
+//
+//					}
+//				}
+			}
+
+			return component;
 		}
-		
-		//modes for the Serializing parser
-		private enum SMode {
-			Free,
-			ControlId,
-			DirectiveId,
-			ControlEnd,
-			DirectiveEnd
+
+		bool IsRunAtServer (XElement el)
+		{
+			XName runat = new XName ("runat");
+			foreach (XAttribute a  in el.Attributes) {
+				if ((a.Name.ToLower () == runat) && (a.Value.ToLower () == "server"))
+					return true;
+			}
+			return false;
 		}
+
+		//static string[] htmlControlTags = {"a", "button", "input", "img", "select", "textarea"};
+		static Dictionary<string, Type> htmlControlTags = new Dictionary<string, Type> () {
+			{"a", typeof (HtmlAnchor)},
+			{"button", typeof (HtmlButton)},
+			{"input", null}, // we'll check that one in the ProcessHtmlControl, because for this tag we have a lot of possible types depending on the type attribute
+			{"img", typeof (HtmlImage)},
+			{"select", typeof (HtmlSelect)},
+			{"textarea", typeof (HtmlTextArea)}
+		};
+
+		private Type GetHtmlControlType (XElement el)
+		{
+			string nameLowered = el.Name.Name.ToLower ();
+			if (!htmlControlTags.ContainsKey (nameLowered))
+				return null;
+
+			Type compType = htmlControlTags[nameLowered];
+			// we have an input tag
+			if (compType == null) {
+				string typeAttr = GetAttributeValueCI (el.Attributes, "type");
+				switch (typeAttr.ToLower ()) {
+				case "button":
+					compType = typeof (HtmlInputButton);
+					break;
+				case "checkbox":
+					compType = typeof (HtmlInputCheckBox);
+					break;
+				case "file":
+					compType = typeof (HtmlInputFile);
+					break;
+				case "hidden":
+					compType = typeof (HtmlInputHidden);
+					break;
+				case "image":
+					compType = typeof (HtmlInputImage);
+					break;
+				case "password":
+					compType = typeof (HtmlInputPassword);
+					break;
+				case "radio":
+					compType = typeof (HtmlInputRadioButton);
+					break;
+				case "reset":
+					compType = typeof (HtmlInputReset);
+					break;
+				case "submit":
+					compType = typeof (HtmlInputSubmit);
+					break;
+				case "text":
+					compType = typeof (HtmlInputText);
+					break;
+				}
+			}
+
+			return compType;
+		}
+
+		/// <summary>
+		/// Gets the attribute value. case insensitive
+		/// </summary>
+		string GetAttributeValueCI (XAttributeCollection attributes, string key)
+		{
+			XName nameKey = new XName (key.ToLowerInvariant ());
+
+			foreach (XAttribute attr in attributes) {
+				if (attr.Name.ToLower () == nameKey)
+					return attr.Value;
+			}
+			return string.Empty;
+		}
+
+		#endregion
 		
 		//we need this to invoke protected member before rendering
 		private static MethodInfo onPreRenderMethodInfo;
@@ -274,46 +721,7 @@ namespace AspNetEdit.Editor.ComponentModel
 				return onPreRenderMethodInfo;
 			}
 		}
-		
-		///<summary>Renders the designer html for an ASP.NET Control</summary>
-		public static string RenderDesignerControl (Control control)
-		{
-			string height = "auto";
-			string width = "auto";
-			string canResize = "true";
-			string canDrop = "false";
-			string id = control.UniqueID;
-			
-			WebControl wc = control as WebControl;
-			if (wc != null) {
-				height = wc.Height.ToString ();
-				width = wc.Width.ToString ();
-			}
-			else
-			{
-				canResize = "false";
-			}
-			
-			//TODO: is there a better way to make tiny controls appear a decent size?
-			if (height == "" || height == "auto") height = "20px";
-			if (width == "" || width == "auto") width = "20px";
-			
-			//render the control
-			//TODO: use designer, when they're written
-			
-			OnPreRenderMethodInfo.Invoke (control, new object[] {EventArgs.Empty});
-			System.IO.StringWriter strWriter = new System.IO.StringWriter ();
-			System.Web.UI.HtmlTextWriter writer = new System.Web.UI.HtmlTextWriter (strWriter);
-			control.RenderControl (writer);
-			writer.Close ();
-			strWriter.Flush ();
-			string content = strWriter.ToString ();
-			strWriter.Close ();
-			
-			return string.Format (ControlSubstituteStructure, id, width, height, canDrop, canResize, content);
-		}
-		
-		#endregion
+
 		
 		//we need this to invoke protected member before rendering
 		private static MethodInfo onInitMethodInfo;
@@ -330,6 +738,8 @@ namespace AspNetEdit.Editor.ComponentModel
 		
 		#region add/remove/update controls
 		
+		// TODO: reimplement the actions on controls on the DOM tree and the designer container
+		
 		bool suppressAddControl = false;
 		
 		public void AddControl (Control control)
@@ -338,30 +748,30 @@ namespace AspNetEdit.Editor.ComponentModel
 			
 			System.Console.WriteLine("AddControl method called");
 			OnInitMethodInfo.Invoke (control, new object[] {EventArgs.Empty});
-			view.AddControl (control);
+			//view.AddControl (control);
 		}
 
 		public void RemoveControl (Control control)
 		{
-			view.RemoveControl (control);
+			//view.RemoveControl (control);
 		}
 		
 		public void RenameControl (string oldName, string newName)
 		{
-			view.RenameControl (oldName, newName);
+			//view.RenameControl (oldName, newName);
 		}		
 				
 		public void InsertFragment (string fragment)
 		{
 			Control[] controls;
 			string doc;
-			aspParser.ProcessFragment (fragment, out controls, out doc);
-			view.InsertFragment (doc);
+			//aspParser.ProcessFragment (fragment, out controls, out doc);
+			//view.InsertFragment (doc);
 			
 			//FIXME: when controls are inserted en masse using InsertFragment, the designer surface
 			//doesn't seem to display then properly till they've been updated
-			foreach (Control c in controls)
-				view.UpdateRender (c);
+//			foreach (Control c in controls)
+//				view.UpdateRender (c);
 		}
 
 		#endregion
@@ -387,15 +797,16 @@ namespace AspNetEdit.Editor.ComponentModel
 				|| (0 == String.Compare (name, "Control", true, CultureInfo.InvariantCulture) && directives["Control"] != null))
 				throw new Exception ("Only one Page or Control directive is allowed in a document");
 
-			DocumentDirective directive = new DocumentDirective (name, values, directivePlaceholderKey);
-			directivePlaceholderKey++;
+			DocumentDirective directive = new DocumentDirective (name, values, directivePlaceHolderKey);
+			directivePlaceHolderKey++;
 
 			if (directives[name] == null)
 				directives[name] = new ArrayList ();
 
 			((ArrayList)directives[name]).Add(directive);
 
-			return String.Format(DirectivePlaceholderStructure, directive.Key.ToString ());
+			// TODO: placeholder for directives
+			return string.Empty;
 		}
 
 		public string RemoveDirective (int placeholderId)

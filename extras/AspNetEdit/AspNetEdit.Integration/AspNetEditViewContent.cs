@@ -33,56 +33,64 @@
 using System;
 using System.IO;
 using System.ComponentModel;
+using System.ComponentModel.Design;
 using Gtk;
 
 using Mono.Addins;
+using MonoDevelop.AspNet.Parser;
 using MonoDevelop.Ide.Gui;
-using MonoDevelop.Ide.Gui.Content;
 using MonoDevelop.Core;
 using MonoDevelop.Ide;
 using MonoDevelop.Core.Execution;
 using MonoDevelop.DesignerSupport.Toolbox;
 using MonoDevelop.DesignerSupport;
 using MonoDevelop.Components.PropertyGrid;
+using MonoDevelop.SourceEditor;
+using MonoDevelop.Xml.StateEngine;
+
 using AspNetEdit.Editor;
+using AspNetEdit.Editor.ComponentModel;
 
 namespace AspNetEdit.Integration
 {
 	
-	public class AspNetEditViewContent : AbstractAttachableViewContent, IToolboxConsumer //, IEditableTextBuffer
+	public class AspNetEditViewContent : AbstractAttachableViewContent, IToolboxConsumer, IOutlinedDocument, IPropertyPadProvider //, IEditableTextBuffer
 	{
 		IViewContent viewContent;
 		EditorProcess editorProcess;
 		
 		Gtk.Socket designerSocket;
-		Gtk.Socket propGridSocket;
+//		Gtk.Socket propGridSocket;
 		
-		Frame propertyFrame;
-		DesignerFrame designerFrame;
+//		Frame propertyFrame;
+		Gtk.Frame designerFrame;
+		
+		MonoDevelop.Ide.Gui.Components.PadTreeView outlineView;
+		Gtk.TreeStore outlineStore;
 		
 		MonoDevelopProxy proxy;
 		
 		bool activated = false;
 		bool suppressSerialisation = false;
-		static string extensionError = null;
 		
 		internal AspNetEditViewContent (IViewContent viewContent)
 		{
 			this.viewContent = viewContent;
 			
-			designerFrame = new DesignerFrame (this);
+			designerFrame = new Frame ();
 			designerFrame.CanFocus = true;
 			designerFrame.Shadow = ShadowType.None;
 			designerFrame.BorderWidth = 0;
 			
-			propertyFrame = new Frame ();
-			propertyFrame.CanFocus = true;
-			propertyFrame.Shadow = ShadowType.None;
-			propertyFrame.BorderWidth = 0;
+//			propertyFrame = new Frame ();
+//			propertyFrame.CanFocus = true;
+//			propertyFrame.Shadow = ShadowType.None;
+//			propertyFrame.BorderWidth = 0;
 			
 			viewContent.WorkbenchWindow.Closing += workbenchWindowClosingHandler;
-			viewContent.DirtyChanged += vcDirtyChanged;
-			viewContent.BeforeSave += vcBeforeSave;
+			
+			outlineStore = null;
+			outlineStore = null;
 			
 			designerFrame.Show ();
 		}
@@ -91,18 +99,6 @@ namespace AspNetEdit.Integration
 		{
 			if (activated)
 				suppressSerialisation = true;
-		}
-		
-		void vcDirtyChanged (object sender, System.EventArgs e)
-		{
-			if (activated && !viewContent.IsDirty)
-				viewContent.IsDirty = true;
-		}
-				
-		void vcBeforeSave (object sender, System.EventArgs e)
-		{
-			if (activated)
-				saveDocumentToTextView ();
 		}
 		
 		public override Gtk.Widget Control {
@@ -123,8 +119,6 @@ namespace AspNetEdit.Integration
 			disposed = true;
 			
 			base.WorkbenchWindow.Closing -= workbenchWindowClosingHandler;
-			viewContent.DirtyChanged -= vcDirtyChanged;
-			viewContent.BeforeSave -= vcBeforeSave;
 			
 			DestroyEditorAndSockets ();
 			designerFrame.Destroy ();
@@ -133,29 +127,6 @@ namespace AspNetEdit.Integration
 		
 		public override void Selected ()
 		{
-			//check that the Mozilla extension is installed correctly, and if not, display an error
-			if (extensionError != null) {
-				return;
-			} else if (!CheckExtension (ref extensionError)) {
-				LoggingService.LogError (extensionError);
-				Label errorlabel = new Label (extensionError);
-				errorlabel.Wrap = true;
-				
-				HBox box = new HBox (false, 10);
-				Image errorImage = new Image (Gtk.Stock.DialogError, Gtk.IconSize.Dialog);
-				
-				box.PackStart (new Label (), true, true, 0);
-				box.PackStart (errorImage, false, false, 10);
-				box.PackStart (errorlabel, true, false, 10);
-				box.PackStart (new Label (), true, true, 0);
-				
-				designerFrame.Add (box);
-				designerFrame.ShowAll ();
-				return;
-			} else {
-				extensionError = null;
-			}
-			
 			if (editorProcess != null)
 				throw new Exception ("Editor should be null when document is selected");
 			
@@ -163,43 +134,54 @@ namespace AspNetEdit.Integration
 			designerSocket.Show ();
 			designerFrame.Add (designerSocket);
 			
-			propGridSocket = new Gtk.Socket ();
-			propGridSocket.Show ();
-			propertyFrame.Add (propGridSocket);
+//			propGridSocket = new Gtk.Socket ();
+//			propGridSocket.Show ();
+//			propertyFrame.Add (propGridSocket);
 			
-			editorProcess = (EditorProcess) Runtime.ProcessService.CreateExternalProcessObject (typeof (EditorProcess), false);
+			// FIXME: Runtime.ProcessService cannot load EditorProcess from AspNetEdit assembly
+			//editorProcess = (EditorProcess)Runtime.ProcessService.CreateExternalProcessObject (typeof(EditorProcess), false);
+			editorProcess = new EditorProcess ();
 			
 			if (designerSocket.IsRealized)
 				editorProcess.AttachDesigner (designerSocket.Id);
-			if (propGridSocket.IsRealized)
-				editorProcess.AttachPropertyGrid (propGridSocket.Id);
+//			if (propGridSocket.IsRealized)
+//				editorProcess.AttachPropertyGrid (propGridSocket.Id);
 			
-			designerSocket.Realized += delegate { editorProcess.AttachDesigner (designerSocket.Id); };
-			propGridSocket.Realized += delegate { editorProcess.AttachPropertyGrid (propGridSocket.Id); };
+			designerSocket.Realized += delegate {
+				editorProcess.AttachDesigner (designerSocket.Id);
+			};
+//			propGridSocket.Realized += delegate {
+//				editorProcess.AttachPropertyGrid (propGridSocket.Id);
+//			};
 			
 			//designerSocket.FocusOutEvent += delegate {
 			//	MonoDevelop.DesignerSupport.DesignerSupport.Service.PropertyPad.BlankPad (); };
+
+			SourceEditorView srcEditor = viewContent.GetContent<SourceEditorView> () as SourceEditorView;
+			AspNetParsedDocument doc = null;
 			
 			//hook up proxy for event binding
 			string codeBehind = null;
 			if (viewContent.Project != null) {
-				string mimeType = DesktopService.GetMimeTypeForUri (viewContent.ContentName);
-				
-				var cu = MonoDevelop.Projects.Dom.Parser.ProjectDomService.Parse (viewContent.Project, viewContent.ContentName)
-					as MonoDevelop.AspNet.Parser.AspNetParsedDocument;
+				using (StringReader reader = new StringReader (srcEditor.Text)) {
+					AspNetParser parser = new AspNetParser ();
+					doc = parser.Parse (true, viewContent.ContentName, reader, viewContent.Project)
+						as AspNetParsedDocument;
 					
-				if (cu != null && cu.PageInfo != null && !string.IsNullOrEmpty (cu.PageInfo.InheritedClass))
-					codeBehind = cu.PageInfo.InheritedClass;
+					if (doc != null && doc.Info != null) {
+						if (string.IsNullOrEmpty (doc.Info.InheritedClass))
+							codeBehind = doc.Info.InheritedClass;
+					}
+				}
 			}
 			proxy = new MonoDevelopProxy (viewContent.Project, codeBehind);
 			
-			ITextBuffer textBuf = (ITextBuffer) viewContent.GetContent (typeof(ITextBuffer));			
-			editorProcess.Initialise (proxy, textBuf.Text, viewContent.ContentName);
+			editorProcess.Initialise (proxy, srcEditor.TextEditor, doc);
 			
 			activated = true;
-			
-			//FIXME: track 'dirtiness' properly
-			viewContent.IsDirty = true;
+
+			// TODO: update the tree on changes in the Dom
+			BuildTreeStore (doc.XDocument);
 		}
 		
 		public override void Deselected ()
@@ -216,7 +198,8 @@ namespace AspNetEdit.Integration
 		void saveDocumentToTextView ()
 		{
 			if (editorProcess != null && !editorProcess.ExceptionOccurred) {
-				IEditableTextBuffer textBuf = (IEditableTextBuffer) viewContent.GetContent (typeof(IEditableTextBuffer));
+				/* TODO: Reimplement the Editor.GetDocument method
+				IEditableTextBuffer textBuf = (IEditableTextBuffer) viewContent.GetContent<IEditableTextBuffer> ();
 				
 				string doc = null;
 				try {
@@ -229,32 +212,36 @@ namespace AspNetEdit.Integration
 			
 				if (doc != null)
 					textBuf.Text = doc;
+					
+				*/
 			}
 		}
 		
 		void DestroyEditorAndSockets ()
 		{
-			if (proxy != null) {
-				proxy.Dispose ();
-				proxy = null;
-			}
-			
-			if (editorProcess != null) {
-				editorProcess.Dispose ();
-				editorProcess = null;
-			}
-			
-			if (propGridSocket != null) {
-				propertyFrame.Remove (propGridSocket);
-				propGridSocket.Dispose ();
-				propGridSocket = null;
-			}
-			
-			if (designerSocket != null) {
-				designerFrame.Remove (designerSocket);
-				designerSocket.Dispose ();
-				designerSocket = null;
-			}
+			// FIXME: dispose the EditorProcess and the sockets
+			editorProcess = null;
+//			if (proxy != null) {
+//				proxy.Dispose ();
+//				proxy = null;
+//			}
+//			
+//			if (editorProcess != null) {
+//				editorProcess.Dispose ();
+//				editorProcess = null;
+//			}
+//			
+//			if (propGridSocket != null) {
+//				propertyFrame.Remove (propGridSocket);
+//				propGridSocket.Dispose ();
+//				propGridSocket = null;
+//			}
+//			
+//			if (designerSocket != null) {
+//				designerFrame.Remove (designerSocket);
+//				designerSocket.Dispose ();
+//				designerSocket = null;
+//			}
 		}
 		
 		#region IToolboxConsumer
@@ -300,126 +287,181 @@ namespace AspNetEdit.Integration
 
 		#endregion IToolboxConsumer
 		
-		class DesignerFrame: Frame, ICustomPropertyPadProvider
+		#region DocumentOutline stuff
+		
+		#region IOutlinedDocument implementation
+		
+		Widget IOutlinedDocument.GetOutlineWidget ()
 		{
-			AspNetEditViewContent view;
+			if (outlineView != null)
+				return outlineView;
+				
+			if (outlineStore == null)
+				throw new Exception ("The treestore should be built, before initializing the TreeView of the DocumentOutline");
 			
-			public DesignerFrame (AspNetEditViewContent view)
-			{
-				this.view = view;
+			outlineView = new MonoDevelop.Ide.Gui.Components.PadTreeView (outlineStore);
+			System.Reflection.PropertyInfo prop = typeof(Gtk.TreeView).GetProperty ("EnableTreeLines");
+			if (prop != null)
+				prop.SetValue (outlineView, true, null);
+			outlineView.TextRenderer.Xpad = 0;
+			outlineView.TextRenderer.Ypad = 0;
+			outlineView.ExpandAll ();
+			outlineView.AppendColumn ("Node", outlineView.TextRenderer, new Gtk.TreeCellDataFunc (OutlineTreeDataFunc));
+			outlineView.HeadersVisible = false;
+			outlineView.Selection.Changed += delegate {
+				Gtk.TreeIter iter = Gtk.TreeIter.Zero;
+				outlineView.Selection.GetSelected (out iter);
+				DocumentOutlineSelectionChanged (outlineStore.GetValue (iter, 0) as XNode);
+			};
+			
+			var sw = new MonoDevelop.Components.CompactScrolledWindow ();
+			sw.Add (outlineView);
+			sw.ShowAll ();
+				
+			return sw;
+		}
+
+		System.Collections.Generic.IEnumerable<Widget> IOutlinedDocument.GetToolbarWidgets ()
+		{
+			return null;
+		}
+
+		void IOutlinedDocument.ReleaseOutlineWidget ()
+		{
+			if (outlineView != null) {
+				Gtk.ScrolledWindow w = (Gtk.ScrolledWindow)outlineView.Parent;
+				w.Destroy ();
+				outlineView.Destroy ();
+				outlineView = null;
 			}
 			
-			Gtk.Widget ICustomPropertyPadProvider.GetCustomPropertyWidget ()
-			{
-				return view.propertyFrame;
-			}
-			
-			void ICustomPropertyPadProvider.DisposeCustomPropertyWidget ()
-			{
+			if (outlineStore != null) {
+				outlineStore.Dispose ();
+				outlineStore = null;
 			}
 		}
 		
-		bool MozillaInstalled (ref string error)
+		#endregion IOutlinedDocument implementation
+		
+		void BuildTreeStore (XDocument doc)
 		{
-			string mozPath = System.Environment.GetEnvironmentVariable ("MOZILLA_FIVE_HOME");
-			if (mozPath == null) {
-				error = "MOZILLA_FIVE_HOME is not set.";
-				return false;
-			}
-			
-			string ffBrowserManifest = Path.Combine (Path.Combine (mozPath, "chrome"), "toolkit.manifest");
-			if (!File.Exists (ffBrowserManifest)) {
-				error = AddinManager.CurrentLocalizer.GetString (
-				    "MOZILLA_FIVE_HOME does not appear to be pointing to a valid Mozilla runtime: \"{0}\".", mozPath);
-				return false;
-			}
-			return true;
+			outlineStore = new TreeStore (typeof (object));
+			BuildTreeChildren (Gtk.TreeIter.Zero, doc);
 		}
 		
-		bool ExtensionInstalled (ref string error)
+		void BuildTreeChildren (Gtk.TreeIter parent, XContainer p)
 		{
-			string mozPath = System.Environment.GetEnvironmentVariable ("MOZILLA_FIVE_HOME");
-			string manifestLocation = Path.Combine (Path.Combine (mozPath, "chrome"), "aspdesigner.manifest");
-			if (!System.IO.File.Exists (manifestLocation)) {
-				error = AddinManager.CurrentLocalizer.GetString (
-				    "The ASP.NET designer's Mozilla extension is not installed.");
-				return false;
-			} else {
-				try {
-					using (StreamReader reader = new StreamReader (manifestLocation)) {
-						string line = reader.ReadLine ().Trim ();
-						int startIndex = "content aspdesigner jar:".Length;
-						int length = line.Length - "aspdesigner.jar!/content/aspdesigner/".Length - startIndex;
-						string path = line.Substring (startIndex, length - 1);
-						if (Path.GetFullPath (path) == Path.GetDirectoryName (System.Reflection.Assembly.GetExecutingAssembly ().Location))
-							return true;
-					}
-				} catch (System.UnauthorizedAccessException) {}
+			foreach (XNode n in p.Nodes) {
+				Gtk.TreeIter childIter;
+				if (!parent.Equals (Gtk.TreeIter.Zero))
+					childIter = outlineStore.AppendValues (parent, n);
+				else
+					childIter = outlineStore.AppendValues (n);
+				
+				XContainer c = n as XContainer;
+				if (c != null && c.FirstChild != null)
+					BuildTreeChildren (childIter, c);
 			}
-			
-			error = AddinManager.CurrentLocalizer.GetString (
-			    "A Mozilla extension is installed for the ASP.NET designer, \n" +
-			    "but it is either incorrectly installed or is not the correct version. \n" +
-			    "It is only possible to have one version installed.");
-			return false;
 		}
 		
-		bool InstallExtension (string extensionStatus)
+		void OutlineTreeDataFunc (Gtk.TreeViewColumn column, Gtk.CellRenderer cell, Gtk.TreeModel model, Gtk.TreeIter iter)
 		{
-			if (!MessageService.Confirm (
-			    AddinManager.CurrentLocalizer.GetString ("Mozilla extension installation"),
-			    extensionStatus + "\n" + AddinManager.CurrentLocalizer.GetString ("Would you like to install it?"),
-			    new AlertButton (AddinManager.CurrentLocalizer.GetString ("Install extension"))))
-				return false;
+			Gtk.CellRendererText txtRenderer = (Gtk.CellRendererText) cell;
+			XNode n = (XNode) model.GetValue (iter, 0);
+			txtRenderer.Text = n.FriendlyPathRepresentation;
+		}
+		
+		void DocumentOutlineSelectionChanged (MonoDevelop.Xml.StateEngine.XNode selNode)
+		{
+			if (selNode == null)
+				return; // not what we are looking for
 			
-			string sourcePath = Path.GetTempFileName ();
-			using (TextWriter writer = new StreamWriter (sourcePath)) {
-				string jarfile = Path.Combine (Path.GetDirectoryName (System.Reflection.Assembly.GetExecutingAssembly ().Location), "aspdesigner.jar");
-				writer.WriteLine ("content aspdesigner jar:{0}!/content/aspdesigner/", jarfile);
-				writer.WriteLine ("locale aspdesigner en-US jar:{0}!/locale/en-US/aspdesigner/", jarfile);
-			}
+			XElement el = selNode as XElement;
 			
-			string mozPath = System.Environment.GetEnvironmentVariable ("MOZILLA_FIVE_HOME");
-			string manifestLocation = Path.Combine (Path.Combine (mozPath, "chrome"), "aspdesigner.manifest");
+			if (el == null)
+				return; // not a XML tag node
 			
-			//string installCommand = String.Format ("\"sh -c \\\"cp '{0}' '{1}'; chmod a+r '{1}'\\\"\"", sourcePath, manifestLocation);
-			string installCommand = String.Format ("\"install '{0}' '{1}'\"", sourcePath, manifestLocation);
-			LoggingService.LogInfo ("Attempting to run root command: '{0}'", installCommand);
-			ProcessWrapper process = null;
-			try {
-				try {
-					process = Runtime.ProcessService.StartProcess ("xdg-su", "-c " + installCommand, null, null);
-				} catch (System.ComponentModel.Win32Exception) {
-					process = Runtime.ProcessService.StartProcess ("gnomesu", "-c " + installCommand, null, null);
+			bool isRunAtServer = false;
+			string id = string.Empty;
+			XName runatName = new XName ("runat");
+			XName idName = new XName ("id");
+			
+			foreach (XAttribute attr in el.Attributes) {
+				if (attr.Name.ToLower () == runatName) {
+					if (attr.Value == "server")
+						isRunAtServer = true;
+					else
+						break;
+				} else if (attr.Name.ToLower () == idName) {
+					id = attr.Value;
 				}
-				//FIXME: this will hang the GTK thread until we the command completes
-				process.WaitForOutput ();
-				File.Delete (sourcePath);
-				return (process != null && process.ExitCode == 0);
-			} catch (Exception ex) {
-				LoggingService.LogError ("Error installing ASP.NET designer Mozilla extension.", ex);
 			}
-			MessageService.ShowError (
-			    AddinManager.CurrentLocalizer.GetString ("Could not execute command as root. \n"+
-			        "Please manually run the command \n{0}\nbefore continuing.", installCommand));
-			File.Delete (sourcePath);
-			return true;
+			
+			if (isRunAtServer && (id != string.Empty) && (editorProcess != null)) {
+
+				// TODO: Add a unique field to editable nodes. the id of the node is not guaranteed to be the component's Site.Name
+				IComponent selected = editorProcess.Editor.DesignerHost.GetComponent (id);
+
+				if (selected != null) {
+					var properties = TypeDescriptor.GetProperties (selected) as PropertyDescriptorCollection;
+
+					var selServ = editorProcess.Editor.Services.GetService (typeof (ISelectionService)) as ISelectionService;
+					selServ.SetSelectedComponents (new IComponent[] {selected});
+				}
+			}
 		}
 		
-		bool CheckExtension (ref string error)
+		#endregion DocumentOutline stuff
+
+		#region IPropertyPadProvider implementation
+		/// <summary>
+		/// The edited component identifier. Stores the id of the component in case it is changed in the property pad.
+		/// </summary>
+		string editedComponentId = string.Empty;
+
+		public object GetActiveComponent ()
 		{
-			try {
-				if (!MozillaInstalled (ref error))
-					return false;
-				if (!ExtensionInstalled (ref error))
-					if (!InstallExtension (error))
-						return false;
-				if (ExtensionInstalled (ref error))
-					return true;
-			} catch (Exception ex) {
-				error = AddinManager.CurrentLocalizer.GetString ("Unhandled error:\n{0}", ex.ToString ());
-			}
-			return false;
+			var selServ = editorProcess.Editor.Services.GetService (typeof (ISelectionService)) as ISelectionService;
+			if (selServ == null)
+				return null;
+
+			editedComponentId = (selServ.PrimarySelection as IComponent).Site.Name;
+
+			return selServ.PrimarySelection;
 		}
+
+		public object GetProvider ()
+		{
+			return GetActiveComponent ();
+		}
+
+		public void OnEndEditing (object obj)
+		{
+		}
+
+		public void OnChanged (object obj)
+		{
+			editorProcess.Editor.DesignerHost.UpdateNode (editedComponentId, obj as IComponent);
+		}
+		#endregion
+		
+//		class DesignerFrame: Frame//, ICustomPropertyPadProvider
+//		{
+//			AspNetEditViewContent view;
+//			
+//			public DesignerFrame (AspNetEditViewContent view)
+//			{
+//				this.view = view;
+//			}
+			
+//			Gtk.Widget ICustomPropertyPadProvider.GetCustomPropertyWidget ()
+//			{
+//				return view.propertyFrame;
+//			}
+//			
+//			void ICustomPropertyPadProvider.DisposeCustomPropertyWidget ()
+//			{
+//			}
+//		}
 	}
 }
