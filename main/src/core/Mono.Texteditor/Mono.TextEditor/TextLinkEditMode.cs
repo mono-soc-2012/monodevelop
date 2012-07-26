@@ -134,6 +134,11 @@ namespace Mono.TextEditor
 		#endregion
 	}
 
+	public enum TextLinkMode {
+		EditIdentifier,
+		General
+	}
+
 	public class TextLinkEditMode : HelpWindowEditMode
 	{
 		List<TextLink> links;
@@ -176,6 +181,11 @@ namespace Mono.TextEditor
 			set;
 		}
 
+		public TextLinkMode TextLinkMode {
+			get;
+			set;
+		}
+
 		TextLinkTooltipProvider tooltipProvider;
 
 		public TextLinkEditMode (TextEditor editor,int baseOffset,List<TextLink> links)
@@ -193,6 +203,15 @@ namespace Mono.TextEditor
 		void HandleEditorDocumentBeginUndo (object sender, EventArgs e)
 		{
 			ExitTextLinkMode ();
+		}
+
+		public event EventHandler Exited;
+
+		protected virtual void OnExited (EventArgs e)
+		{
+			EventHandler handler = this.Exited;
+			if (handler != null)
+				handler (this, e);
 		}
 
 		public event EventHandler Cancel;
@@ -303,6 +322,7 @@ namespace Mono.TextEditor
 				Editor.Document.StackUndoToDepth (undoDepth);
 			Editor.CurrentMode = OldMode;
 			Editor.Document.CommitUpdateAll ();
+			OnExited (EventArgs.Empty);
 		}
 
 		public bool IsInUpdate {

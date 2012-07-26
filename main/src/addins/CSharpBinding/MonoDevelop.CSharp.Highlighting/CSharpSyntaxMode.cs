@@ -47,6 +47,7 @@ using ICSharpCode.NRefactory;
 using ICSharpCode.NRefactory.CSharp.TypeSystem;
 using MonoDevelop.SourceEditor.QuickTasks;
 using System.Threading;
+using System.Diagnostics;
 
 
 namespace MonoDevelop.CSharp.Highlighting
@@ -261,6 +262,9 @@ namespace MonoDevelop.CSharp.Highlighting
 			using (XmlReader reader = provider.Open ()) {
 				SyntaxMode baseMode = SyntaxMode.Read (reader);
 				rules = new List<Rule> (baseMode.Rules);
+				rules.Add (new Rule (baseMode) {
+					Name = "PreProcessorComment"
+				});
 				keywords = new List<Keywords> (baseMode.Keywords);
 				spans = new List<Span> (baseMode.Spans.Where (span => span.Begin.Pattern != "#")).ToArray ();
 				matches = baseMode.Matches;
@@ -344,7 +348,7 @@ namespace MonoDevelop.CSharp.Highlighting
 				TagColor = "text.preprocessor";
 				if (disabled || !IsValid) {
 					Color = "comment.block";
-					Rule = "String";
+					Rule = "PreProcessorComment";
 				} else {
 					Color = "text";
 					Rule = "<root>";
@@ -493,7 +497,13 @@ namespace MonoDevelop.CSharp.Highlighting
 				}
 				return style;
 			}
-			
+
+			static int TokenLength (AstNode node)
+			{
+				Debug.Assert (node.StartLocation.Line == node.EndLocation.Line);
+				return node.EndLocation.Column - node.StartLocation.Column;
+			}
+
 			string GetSemanticStyleFromAst (ParsedDocument parsedDocument, Chunk chunk, ref int endOffset)
 			{
 				var unit = csharpSyntaxMode.unit;
@@ -512,11 +522,11 @@ namespace MonoDevelop.CSharp.Highlighting
 						
 						var result = csharpSyntaxMode.resolver.Resolve (st);
 						if (result.IsError && csharpSyntaxMode.guiDocument.Project != null) {
-							endOffset = chunk.Offset + st.Identifier.Length;
+							endOffset = chunk.Offset + TokenLength (st.IdentifierToken);
 							return "keyword.semantic.error";
 						}
 						if (result is TypeResolveResult && st.IdentifierToken.Contains (loc) && unit.GetNodeAt<UsingDeclaration> (loc) == null) {
-							endOffset = chunk.Offset + st.Identifier.Length;
+							endOffset = chunk.Offset + TokenLength (st.IdentifierToken);
 							return "keyword.semantic.type";
 						}
 						return null;
@@ -526,11 +536,11 @@ namespace MonoDevelop.CSharp.Highlighting
 						
 						var result = csharpSyntaxMode.resolver.Resolve (mt);
 						if (result.IsError && csharpSyntaxMode.guiDocument.Project != null) {
-							endOffset = chunk.Offset + mt.MemberName.Length;
+							endOffset = chunk.Offset + TokenLength (mt.MemberNameToken);
 							return "keyword.semantic.error";
 						}
 						if (result is TypeResolveResult && mt.MemberNameToken.Contains (loc) && unit.GetNodeAt<UsingDeclaration> (loc) == null) {
-							endOffset = chunk.Offset + mt.MemberName.Length;
+							endOffset = chunk.Offset + TokenLength (mt.MemberNameToken);
 							return "keyword.semantic.type";
 						}
 						return null;
@@ -538,12 +548,12 @@ namespace MonoDevelop.CSharp.Highlighting
 					
 					if (node is Identifier) {
 						if (node.Parent is TypeDeclaration && node.Role == Roles.Identifier) {
-							endOffset = chunk.Offset + ((Identifier)node).Name.Length;
+							endOffset = chunk.Offset + TokenLength ((Identifier)node);
 							return "keyword.semantic.type";
 						}
 
 						if (node.Parent is PropertyDeclaration) {
-							endOffset = chunk.Offset + ((Identifier)node).Name.Length;
+							endOffset = chunk.Offset + TokenLength ((Identifier)node);
 							return "keyword.semantic.property";
 						}
 
@@ -551,11 +561,11 @@ namespace MonoDevelop.CSharp.Highlighting
 							var field = node.Parent.Parent as FieldDeclaration;
 							if (field.Modifiers.HasFlag (Modifiers.Const) || field.Modifiers.HasFlag (Modifiers.Static | Modifiers.Readonly))
 								return null;
-							endOffset = chunk.Offset + ((Identifier)node).Name.Length;
+							endOffset = chunk.Offset + TokenLength ((Identifier)node);
 							return "keyword.semantic.field";
 						}
 						if (node.Parent is FixedVariableInitializer /*|| node.Parent is EnumMemberDeclaration*/) {
-							endOffset = chunk.Offset + ((Identifier)node).Name.Length;
+							endOffset = chunk.Offset + TokenLength ((Identifier)node);
 							return "keyword.semantic.field";
 						}
 					}
@@ -564,7 +574,7 @@ namespace MonoDevelop.CSharp.Highlighting
 					if (id != null) {
 						var result = csharpSyntaxMode.resolver.Resolve (id);
 						if (result.IsError && csharpSyntaxMode.guiDocument.Project != null) {
-							endOffset = chunk.Offset + id.Identifier.Length;
+							endOffset = chunk.Offset + TokenLength (id.IdentifierToken);
 							return "keyword.semantic.error";
 						}
 						
@@ -574,11 +584,11 @@ namespace MonoDevelop.CSharp.Highlighting
 								var field = member as IField;
 								if (field.IsConst || field.IsStatic && field.IsReadOnly)
 									return null;
-								endOffset = chunk.Offset + id.Identifier.Length;
+								endOffset = chunk.Offset + TokenLength (id.IdentifierToken);
 								return "keyword.semantic.field";
 							}
 							if (member is IProperty) {
-								endOffset = chunk.Offset + id.Identifier.Length;
+								endOffset = chunk.Offset + TokenLength (id.IdentifierToken);
 								return "keyword.semantic.property";
 							}
 						}
@@ -597,20 +607,45 @@ namespace MonoDevelop.CSharp.Highlighting
 						
 						var result = csharpSyntaxMode.resolver.Resolve (memberReferenceExpression);
 						if (result.IsError && csharpSyntaxMode.guiDocument.Project != null) {
-							endOffset = chunk.Offset + memberReferenceExpression.MemberName.Length;
+							endOffset = chunk.Offset + TokenLength (memberReferenceExpression.MemberNameToken);
 							return "keyword.semantic.error";
 						}
 						
 						if (result is MemberResolveResult) {
 							var member = ((MemberResolveResult)result).Member;
 							if (member is IField && !member.IsStatic && !((IField)member).IsConst) {
-								endOffset = chunk.Offset + memberReferenceExpression.MemberName.Length;
+								endOffset = chunk.Offset + TokenLength (memberReferenceExpression.MemberNameToken);
 								return "keyword.semantic.field";
 							}
 						}
 						if (result is TypeResolveResult) {
 							if (!result.IsError && csharpSyntaxMode.guiDocument.Project != null) {
-								endOffset = chunk.Offset + memberReferenceExpression.MemberName.Length;
+								endOffset = chunk.Offset + TokenLength (memberReferenceExpression.MemberNameToken);
+								return "keyword.semantic.type";
+							}
+						}
+					}
+					var pointerReferenceExpression = node as PointerReferenceExpression;
+					if (pointerReferenceExpression != null) {
+						if (!pointerReferenceExpression.MemberNameToken.Contains (loc)) 
+							return null;
+						
+						var result = csharpSyntaxMode.resolver.Resolve (pointerReferenceExpression);
+						if (result.IsError && csharpSyntaxMode.guiDocument.Project != null) {
+							endOffset = chunk.Offset + TokenLength (pointerReferenceExpression.MemberNameToken);
+							return "keyword.semantic.error";
+						}
+						
+						if (result is MemberResolveResult) {
+							var member = ((MemberResolveResult)result).Member;
+							if (member is IField && !member.IsStatic && !((IField)member).IsConst) {
+								endOffset = chunk.Offset + TokenLength (pointerReferenceExpression.MemberNameToken);
+								return "keyword.semantic.field";
+							}
+						}
+						if (result is TypeResolveResult) {
+							if (!result.IsError && csharpSyntaxMode.guiDocument.Project != null) {
+								endOffset = chunk.Offset + TokenLength (pointerReferenceExpression.MemberNameToken);
 								return "keyword.semantic.type";
 							}
 						}

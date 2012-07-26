@@ -121,7 +121,7 @@ namespace MonoDevelop.CSharp.Formatting
 			return sb.ToString ();
 		}
 		
-		static AstFormattingVisitor GetFormattingChanges (PolicyContainer policyParent, IEnumerable<string> mimeTypeChain, MonoDevelop.Ide.Gui.Document document, string input)
+		static AstFormattingVisitor GetFormattingChanges (PolicyContainer policyParent, IEnumerable<string> mimeTypeChain, MonoDevelop.Ide.Gui.Document document, string input, DomRegion formattingRegion)
 		{
 			using (var stubData = TextEditorData.CreateImmutable (input)) {
 				stubData.Document.FileName = document.FileName;
@@ -143,8 +143,10 @@ namespace MonoDevelop.CSharp.Formatting
 				var policy = policyParent.Get<CSharpFormattingPolicy> (mimeTypeChain);
 				
 				var formattingVisitor = new AstFormattingVisitor (policy.CreateOptions (), stubData.Document, document.Editor.CreateNRefactoryTextEditorOptions ()) {
-					HadErrors = hadErrors
+					HadErrors = hadErrors,
+					FormattingRegion = formattingRegion
 				};
+
 				compilationUnit.AcceptVisitor (formattingVisitor);
 				return formattingVisitor;
 			}
@@ -159,11 +161,27 @@ namespace MonoDevelop.CSharp.Formatting
 				return;
 			string text;
 			int formatStartOffset, formatLength, realTextDelta;
+			DomRegion formattingRegion = DomRegion.Empty;
+			int startDelta = 1;
 			if (exact) {
 				text = data.Editor.Text;
-				formatStartOffset = startOffset;
-				formatLength = endOffset - startOffset;
-				realTextDelta = 0;
+				var seg = ext.typeSystemSegmentTree.GetMemberSegmentAt (startOffset);
+				var seg2 = ext.typeSystemSegmentTree.GetMemberSegmentAt (endOffset);
+				if (seg != null && seg == seg2) {
+					var member = seg.Entity;
+					if (member == null || member.Region.IsEmpty || member.BodyRegion.End.IsEmpty)
+						return;
+
+					text = BuildStub (data, seg, startOffset, endOffset, out formatStartOffset);
+					startDelta = startOffset - seg.Offset;
+					formatLength = endOffset - startOffset + startDelta;
+					realTextDelta = seg.Offset - formatStartOffset;
+				} else {
+					formatStartOffset = startOffset;
+					formatLength = endOffset - startOffset;
+					realTextDelta = 0;
+					formattingRegion = new DomRegion (data.Editor.OffsetToLocation (startOffset), data.Editor.OffsetToLocation (endOffset));
+				}
 			} else {
 				var seg = ext.typeSystemSegmentTree.GetMemberSegmentAt (startOffset - 1);
 				if (seg == null)
@@ -171,22 +189,21 @@ namespace MonoDevelop.CSharp.Formatting
 				var member = seg.Entity;
 				if (member == null || member.Region.IsEmpty || member.BodyRegion.End.IsEmpty)
 					return;
-				
+	
 				// Build stub
 				text = BuildStub (data, seg, startOffset, endOffset, out formatStartOffset);
+
 				formatLength = endOffset - seg.Offset;
 				realTextDelta = seg.Offset - formatStartOffset;
 			}
-
 			// Get changes from formatting visitor
-			var changes = GetFormattingChanges (policyParent, mimeTypeChain, data, text);
+			var changes = GetFormattingChanges (policyParent, mimeTypeChain, data, text, formattingRegion);
 			if (changes == null)
 				return;
 
 			// Do the actual formatting
 //			var originalVersion = data.Editor.Document.Version;
 
-			int startDelta = 1;
 			using (var undo = data.Editor.OpenUndoGroup ()) {
 				try {
 					changes.ApplyChanges (formatStartOffset + startDelta, Math.Max (0, formatLength - startDelta - 1), delegate (int replaceOffset, int replaceLength, string insertText) {

@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 ADDIN_BUILD = $(top_builddir)/build/AddIns/MonoDevelop.AspNet
 ASSEMBLY = $(ADDIN_BUILD)/MonoDevelop.AspNet.dll
 
@@ -197,3 +198,6 @@ EXTRA_DIST = $(FILES) $(RES) $(DATA_FILES)
 
 include $(top_srcdir)/Makefile.include
 
+=======
+include $(top_srcdir)/xbuild.include
+>>>>>>> origin/master

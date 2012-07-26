@@ -544,7 +544,7 @@ namespace MonoDevelop.Projects
 
 					//VS COMPAT: recursively copy references's "local copy" files
 					//but only copy the "copy to output" files from the immediate references
-					if (processedProjects.Add (p))
+					if (processedProjects.Add (p) || supportReferDistance == 1)
 						foreach (var f in p.GetSupportFileList (configuration))
 							list.Add (f.Src, f.CopyOnlyIfNewer, f.Target);
 
@@ -817,10 +817,11 @@ namespace MonoDevelop.Projects
 					break;
 				}
 			}
-			
+
+			var config = (DotNetProjectConfiguration) GetConfiguration (configuration);
 			return Files.Any (file => file.BuildAction == BuildAction.EmbeddedResource
 					&& String.Compare (Path.GetExtension (file.FilePath), ".resx", StringComparison.OrdinalIgnoreCase) == 0
-					&& MD1DotNetProjectHandler.IsResgenRequired (file.FilePath));
+					&& MD1DotNetProjectHandler.IsResgenRequired (file.FilePath, config.IntermediateOutputDirectory.Combine (file.ResourceId)));
 		}
 		
 		protected internal override DateTime OnGetLastBuildTime (ConfigurationSelector configuration)

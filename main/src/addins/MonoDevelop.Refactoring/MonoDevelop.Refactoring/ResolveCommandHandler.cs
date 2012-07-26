@@ -42,13 +42,14 @@ using ICSharpCode.NRefactory.CSharp.Completion;
 using ICSharpCode.NRefactory.CSharp.TypeSystem;
 using MonoDevelop.Ide.Gui.Content;
 using MonoDevelop.Ide.TypeSystem;
+using System.Threading;
 
 namespace MonoDevelop.Refactoring
 {
 	public class ResolveCommandHandler : CommandHandler
 	{
 
-		public static bool ResolveAt (Document doc, out ResolveResult resolveResult, out AstNode node)
+		public static bool ResolveAt (Document doc, out ResolveResult resolveResult, out AstNode node, CancellationToken token = default (CancellationToken))
 		{
 			var parsedDocument = doc.ParsedDocument;
 			resolveResult = null;
@@ -60,9 +61,12 @@ namespace MonoDevelop.Refactoring
 			if (unit == null || parsedFile == null)
 				return false;
 			try {
-				resolveResult = ResolveAtLocation.Resolve (doc.Compilation, parsedFile, unit, doc.Editor.Caret.Location, out node);
+				var location = RefactoringService.GetCorrectResolveLocation (doc, doc.Editor.Caret.Location);
+				resolveResult = ResolveAtLocation.Resolve (doc.Compilation, parsedFile, unit, location, out node, token);
 				if (resolveResult == null || node is Statement)
 					return false;
+			} catch (OperationCanceledException) {
+				return false;
 			} catch (Exception e) {
 				Console.WriteLine ("Got resolver exception:" + e);
 				return false;
@@ -94,7 +98,7 @@ namespace MonoDevelop.Refactoring
 				foreach (string ns in possibleNamespaces) {
 					var info = resolveMenu.CommandInfos.Add (
 						string.Format ("using {0};", ns),
-						new System.Action (new AddImport (doc, resolveResult, ns, true).Run)
+						new System.Action (new AddImport (doc, resolveResult, ns, true, node).Run)
 					);
 					info.Icon = MonoDevelop.Ide.Gui.Stock.AddNamespace;
 				}
@@ -107,7 +111,7 @@ namespace MonoDevelop.Refactoring
 				if (node is ObjectCreateExpression)
 					node = ((ObjectCreateExpression)node).Type;
 				foreach (string ns in possibleNamespaces) {
-					resolveMenu.CommandInfos.Add (string.Format ("{0}", ns + "." + doc.Editor.GetTextBetween (node.StartLocation, node.EndLocation)), new System.Action (new AddImport (doc, resolveResult, ns, false).Run));
+					resolveMenu.CommandInfos.Add (string.Format ("{0}", ns + "." + doc.Editor.GetTextBetween (node.StartLocation, node.EndLocation)), new System.Action (new AddImport (doc, resolveResult, ns, false, node).Run));
 				}
 			}
 			
@@ -284,13 +288,15 @@ namespace MonoDevelop.Refactoring
 			readonly ResolveResult resolveResult;
 			readonly string ns;
 			readonly bool addUsing;
+			readonly AstNode node;
 			
-			public AddImport (Document doc, ResolveResult resolveResult, string ns, bool addUsing)
+			public AddImport (Document doc, ResolveResult resolveResult, string ns, bool addUsing, AstNode node)
 			{
 				this.doc = doc;
 				this.resolveResult = resolveResult;
 				this.ns = ns;
 				this.addUsing = addUsing;
+				this.node = node;
 			}
 			
 			public void Run ()
@@ -299,7 +305,6 @@ namespace MonoDevelop.Refactoring
 
 				if (!addUsing) {
 					var unit = doc.ParsedDocument.GetAst<CompilationUnit> ();
-					var node = unit.GetNodeAt (loc, n => n is Expression || n is AstType);
 					int offset = doc.Editor.LocationToOffset (node.StartLocation);
 					doc.Editor.Insert (offset, ns + ".");
 					doc.Editor.Document.CommitLineUpdate (loc.Line);

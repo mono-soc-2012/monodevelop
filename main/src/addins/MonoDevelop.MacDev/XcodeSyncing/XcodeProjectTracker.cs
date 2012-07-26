@@ -43,12 +43,16 @@ namespace MonoDevelop.MacDev.XcodeSyncing
 	public interface IXcodeTrackedProject
 	{
 		XcodeProjectTracker XcodeProjectTracker { get; }
+		FilePath GetBundleResourceId (ProjectFile pf);
+		FilePath DefaultBundleResourceDir { get; }
 	}
 	
 	public abstract class XcodeProjectTracker : IDisposable
 	{
 		readonly NSObjectInfoService infoService;
 		readonly DotNetProject dnp;
+
+		object xcode_lock = new object ();
 		List<NSObjectTypeInfo> userTypes;
 		XcodeMonitor xcode;
 
@@ -130,16 +134,16 @@ namespace MonoDevelop.MacDev.XcodeSyncing
 					xcode.CloseProject ();
 				xcode.DeleteProjectDirectory ();
 			} finally {
+				MonoDevelop.Ide.IdeApp.CommandService.ApplicationFocusIn -= AppRegainedFocus;
+				dnp.FileAddedToProject -= FileAddedToProject;
+				dnp.FilePropertyChangedInProject -= FilePropertyChangedInProject;;
+				dnp.FileRemovedFromProject -= FileRemovedFromProject;
+				dnp.FileChangedInProject -= FileChangedInProject;
+				dnp.NameChanged -= ProjectNameChanged;
+
 				XC4Debug.Unindent ();
 				xcode = null;
 			}
-			
-			dnp.FileAddedToProject -= FileAddedToProject;
-			dnp.FilePropertyChangedInProject -= FilePropertyChangedInProject;;
-			dnp.FileRemovedFromProject -= FileRemovedFromProject;
-			dnp.FileChangedInProject -= FileChangedInProject;
-			dnp.NameChanged -= ProjectNameChanged;
-			MonoDevelop.Ide.IdeApp.CommandService.ApplicationFocusIn -= AppRegainedFocus;
 		}
 		
 		void ShowXcodeScriptError ()
@@ -152,32 +156,34 @@ namespace MonoDevelop.MacDev.XcodeSyncing
 		
 		void AppRegainedFocus (object sender, EventArgs e)
 		{
-			if (!SyncingEnabled)
-				return;
-			
-			XC4Debug.Log ("MonoDevelop has regained focus.");
-			
-			using (var monitor = GetStatusMonitor (GettextCatalog.GetString ("Synchronizing changes from Xcode..."))) {
-				bool projectOpen = false;
-				
-				try {
-					// Note: Both IsProjectOpen() and SaveProject() may throw TimeoutExceptions or AppleScriptExceptions
-					if ((projectOpen = xcode.IsProjectOpen ()))
-						xcode.SaveProject (monitor);
-				} catch (Exception ex) {
-					ShowXcodeScriptError ();
-					monitor.Log.WriteLine ("Xcode failed to save pending changes to project: {0}", ex);
-					
-					// Note: This will cause us to disable syncing after we sync whatever we can over from Xcode...
-					projectOpen = false;
-				}
-				
-				try {
-					SyncXcodeChanges (monitor);
-				} finally {
-					if (!projectOpen) {
-						XC4Debug.Log ("Xcode project for '{0}' is not open, disabling syncing.", dnp.Name);
-						DisableSyncing (false);
+			lock (xcode_lock) {
+				if (!SyncingEnabled)
+					return;
+
+				XC4Debug.Log ("MonoDevelop has regained focus.");
+
+				using (var monitor = GetStatusMonitor (GettextCatalog.GetString ("Synchronizing changes from Xcode..."))) {
+					bool projectOpen = false;
+
+					try {
+						// Note: Both IsProjectOpen() and SaveProject() may throw TimeoutExceptions or AppleScriptExceptions
+						if ((projectOpen = xcode.IsProjectOpen ()))
+							xcode.SaveProject (monitor);
+					} catch (Exception ex) {
+						ShowXcodeScriptError ();
+						monitor.Log.WriteLine ("Xcode failed to save pending changes to project: {0}", ex);
+
+						// Note: This will cause us to disable syncing after we sync whatever we can over from Xcode...
+						projectOpen = false;
+					}
+
+					try {
+						SyncXcodeChanges (monitor);
+					} finally {
+						if (!projectOpen) {
+							XC4Debug.Log ("Xcode project for '{0}' is not open, disabling syncing.", dnp.Name);
+							DisableSyncing (false);
+						}
 					}
 				}
 			}
@@ -218,16 +224,18 @@ namespace MonoDevelop.MacDev.XcodeSyncing
 		{
 			var xibFile = dnp.Files.GetFile (path);
 			bool success = false;
-			
+
 			Debug.Assert (xibFile != null);
 			Debug.Assert (IsInterfaceDefinition (xibFile));
-			
-			using (var monitor = GetStatusMonitor (GettextCatalog.GetString ("Opening document '{0}' from project '{1}' in Xcode...", xibFile.ProjectVirtualPath, dnp.Name))) {
-				monitor.BeginTask (GettextCatalog.GetString ("Opening document '{0}' from project '{1}' in Xcode...", xibFile.ProjectVirtualPath, dnp.Name), 0);
-				success = OpenFileInXcodeProject (monitor, xibFile.ProjectVirtualPath);
-				monitor.EndTask ();
+
+			lock (xcode_lock) {
+				using (var monitor = GetStatusMonitor (GettextCatalog.GetString ("Opening document '{0}' from project '{1}' in Xcode...", xibFile.ProjectVirtualPath, dnp.Name))) {
+					monitor.BeginTask (GettextCatalog.GetString ("Opening document '{0}' from project '{1}' in Xcode...", xibFile.ProjectVirtualPath, dnp.Name), 0);
+					success = OpenFileInXcodeProject (monitor, xibFile.ProjectVirtualPath);
+					monitor.EndTask ();
+				}
 			}
-			
+
 			return success;
 		}
 		
@@ -239,98 +247,113 @@ namespace MonoDevelop.MacDev.XcodeSyncing
 		bool IncludeInSyncedProject (ProjectFile pf)
 		{
 			return (pf.BuildAction == BuildAction.Content && pf.ProjectVirtualPath.ParentDirectory.IsNullOrEmpty)
-				|| (pf.BuildAction == BuildAction.InterfaceDefinition && HasInterfaceDefinitionExtension (pf.FilePath));
+				|| (pf.BuildAction == BuildAction.InterfaceDefinition && HasInterfaceDefinitionExtension (pf.FilePath)
+				    || pf.BuildAction == "BundleResource");
 		}
 		
 		#region Project change tracking
 		
 		void ProjectNameChanged (object sender, SolutionItemRenamedEventArgs e)
 		{
-			XC4Debug.Log ("Project '{0}' was renamed to '{1}', resetting Xcode sync.", e.OldName, e.NewName);
-			
-			XC4Debug.Indent ();
-			try {
-				xcode.CloseProject ();
-				xcode.DeleteProjectDirectory ();
-			} finally {
-				XC4Debug.Unindent ();
+			lock (xcode_lock) {
+				if (!SyncingEnabled)
+					return;
+
+				XC4Debug.Log ("Project '{0}' was renamed to '{1}', resetting Xcode sync.", e.OldName, e.NewName);
+
+				XC4Debug.Indent ();
+				try {
+					xcode.CloseProject ();
+					xcode.DeleteProjectDirectory ();
+				} finally {
+					XC4Debug.Unindent ();
+				}
+
+				xcode = new XcodeMonitor (dnp.BaseDirectory.Combine ("obj", "Xcode"), dnp.Name);
 			}
-			
-			xcode = new XcodeMonitor (dnp.BaseDirectory.Combine ("obj", "Xcode"), dnp.Name);
 		}
 		
 		void FileRemovedFromProject (object sender, ProjectFileEventArgs e)
 		{
-			if (!SyncingEnabled)
-				return;
-			
-			XC4Debug.Log ("Files removed from project '{0}'", dnp.Name);
-			foreach (var file in e)
-				XC4Debug.Log ("   * Removed: {0}", file.ProjectFile.ProjectVirtualPath);
-			
-			XC4Debug.Indent ();
-			try {
-				if (e.Any (finf => finf.Project == dnp && IsInterfaceDefinition (finf.ProjectFile))) {
-					if (!dnp.Files.Any (IsInterfaceDefinition)) {
-						XC4Debug.Log ("Last Interface Definition file removed from '{0}', disabling Xcode sync.", dnp.Name);
-						DisableSyncing (true);
-						return;
+			lock (xcode_lock) {
+				if (!SyncingEnabled)
+					return;
+
+				XC4Debug.Log ("Files removed from project '{0}'", dnp.Name);
+				foreach (var file in e)
+					XC4Debug.Log ("   * Removed: {0}", file.ProjectFile.ProjectVirtualPath);
+
+				XC4Debug.Indent ();
+				try {
+					if (e.Any (finf => finf.Project == dnp && IsInterfaceDefinition (finf.ProjectFile))) {
+						if (!dnp.Files.Any (IsInterfaceDefinition)) {
+							XC4Debug.Log ("Last Interface Definition file removed from '{0}', disabling Xcode sync.", dnp.Name);
+							DisableSyncing (true);
+							return;
+						}
 					}
+				} finally {
+					XC4Debug.Unindent ();
 				}
-			} finally {
-				XC4Debug.Unindent ();
+
+				CheckFileChanges (e);
 			}
-			
-			CheckFileChanges (e);
 		}
 
 		void FileAddedToProject (object sender, ProjectFileEventArgs e)
 		{
-			if (!SyncingEnabled)
-				return;
-			
-			XC4Debug.Log ("Files added to project '{0}'", dnp.Name);
-			foreach (var file in e)
-				XC4Debug.Log ("   * Added: {0}", file.ProjectFile.ProjectVirtualPath);
-			
-			CheckFileChanges (e);
+			lock (xcode_lock) {
+				if (!SyncingEnabled)
+					return;
+
+				XC4Debug.Log ("Files added to project '{0}'", dnp.Name);
+				foreach (var file in e)
+					XC4Debug.Log ("   * Added: {0}", file.ProjectFile.ProjectVirtualPath);
+
+				CheckFileChanges (e);
+			}
 		}
 
 		void FileChangedInProject (object sender, ProjectFileEventArgs e)
 		{
-			// avoid infinite recursion when we add files
-			if (!SyncingEnabled || updatingProjectFiles)
-				return;
-			
-			XC4Debug.Log ("Files changed in project '{0}'", dnp.Name);
-			foreach (var file in e)
-				XC4Debug.Log ("   * Changed: {0}", file.ProjectFile.ProjectVirtualPath);
-			
-			CheckFileChanges (e);
+			lock (xcode_lock) {
+				// avoid infinite recursion when we add files
+				if (!SyncingEnabled || updatingProjectFiles)
+					return;
+
+				XC4Debug.Log ("Files changed in project '{0}'", dnp.Name);
+				foreach (var file in e)
+					XC4Debug.Log ("   * Changed: {0}", file.ProjectFile.ProjectVirtualPath);
+
+				CheckFileChanges (e);
+			}
 		}
 
 		void FilePropertyChangedInProject (object sender, ProjectFileEventArgs e)
 		{
-			if (!SyncingEnabled)
-				return;
-			
-			XC4Debug.Log ("File properties changed in project '{0}'", dnp.Name);
-			foreach (var file in e)
-				XC4Debug.Log ("   * Property Changed: {0}", file.ProjectFile.ProjectVirtualPath);
-			
-			CheckFileChanges (e);
+			lock (xcode_lock) {
+				if (!SyncingEnabled)
+					return;
+
+				XC4Debug.Log ("File properties changed in project '{0}'", dnp.Name);
+				foreach (var file in e)
+					XC4Debug.Log ("   * Property Changed: {0}", file.ProjectFile.ProjectVirtualPath);
+
+				CheckFileChanges (e);
+			}
 		}
-		
+
 		void CheckFileChanges (ProjectFileEventArgs e)
 		{
 			bool updateTypes = false, updateProject = false;
 			
-			foreach (ProjectFileEventInfo finf in e) {
-				if (finf.Project != dnp)
+			foreach (ProjectFileEventInfo finfo in e) {
+				if (finfo.Project != dnp)
 					continue;
-				if (finf.ProjectFile.BuildAction == BuildAction.Compile) {
+
+				if (finfo.ProjectFile.BuildAction == BuildAction.Compile) {
 					updateTypes = true;
-				} else if (IncludeInSyncedProject (finf.ProjectFile)) {
+				} else if (IncludeInSyncedProject (finfo.ProjectFile)) {
 					updateProject = true;
 				}
 			}
@@ -555,9 +578,9 @@ namespace MonoDevelop.MacDev.XcodeSyncing
 					continue;
 				
 				monitor.Log.WriteLine ("Adding '{0}' to project '{1}'", file.SyncedRelative, dnp.Name);
-				
+
 				FilePath path = new FilePath (file.Original);
-				string buildAction = HasInterfaceDefinitionExtension (path) ? BuildAction.InterfaceDefinition : BuildAction.Content;
+				string buildAction = HasInterfaceDefinitionExtension (path) ? BuildAction.InterfaceDefinition : BuildAction.BundleResource;
 				context.Project.AddFile (path, buildAction);
 				filesAdded = true;
 			}

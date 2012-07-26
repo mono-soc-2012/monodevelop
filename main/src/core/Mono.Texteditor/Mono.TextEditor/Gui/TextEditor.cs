@@ -85,8 +85,22 @@ namespace Mono.TextEditor
 				return textEditorData.IsDisposed;
 			}
 		}
-	
 		
+		/// <summary>
+		/// Gets or sets a value indicating whether this <see cref="Mono.TextEditor.TextEditor"/> converts tabs to spaces.
+		/// It is possible to overwrite the default options value for certain languages (like F#).
+		/// </summary>
+		/// <value>
+		/// <c>true</c> if tabs to spaces should be converted; otherwise, <c>false</c>.
+		/// </value>
+		public bool TabsToSpaces {
+			get {
+				return textEditorData.TabsToSpaces;
+			}
+			set {
+				textEditorData.TabsToSpaces = value;
+			}
+		}
 		
 		public Mono.TextEditor.Caret Caret {
 			get {
@@ -342,9 +356,13 @@ namespace Mono.TextEditor
 			InitAnimations ();
 			this.Document.EndUndo += HandleDocumenthandleEndUndo;
 			this.textEditorData.HeightTree.LineUpdateFrom += delegate(object sender, HeightTree.HeightChangedEventArgs e) {
-//				Console.WriteLine ("redraw from :" + e.Line);
+				//Console.WriteLine ("redraw from :" + e.Line);
 				RedrawFromLine (e.Line);
 			};
+			this.Document.Splitter.LineChanged += delegate(object sender, LineEventArgs e) {
+				RedrawLine (e.Line.LineNumber);
+			};
+
 #if ATK
 			TextEditorAccessible.Factory.Init (this);
 #endif
@@ -433,7 +451,7 @@ namespace Mono.TextEditor
 			HideTooltip ();
 			ResetIMContext ();
 			
-			if (Caret.AutoScrollToCaret)
+			if (Caret.AutoScrollToCaret && HasFocus)
 				ScrollToCaret ();
 			
 //			Rectangle rectangle = textViewMargin.GetCaretRectangle (Caret.Mode);
@@ -471,7 +489,6 @@ namespace Mono.TextEditor
 				this.RedrawMarginLines (this.textViewMargin, 
 				                        System.Math.Min (System.Math.Min (oldStartLine, oldEndLine), System.Math.Min (startLine, endLine)),
 				                        System.Math.Max (System.Math.Max (oldStartLine, oldEndLine), System.Math.Max (startLine, endLine)));
-				oldSelection = selection;
 			} else {
 				if (endLine < 0 && startLine >=0)
 					endLine = Document.LineCount;
@@ -510,12 +527,12 @@ namespace Mono.TextEditor
 				}
 				
 				if (from >= 0 && to >= 0) {
-					oldSelection = selection;
 					this.RedrawMarginLines (this.textViewMargin, 
 					                        System.Math.Max (0, System.Math.Min (from, to) - 1),
 					                        System.Math.Max (from, to));
 				}
 			}
+			oldSelection = selection;
 			OnSelectionChanged (EventArgs.Empty);
 		}
 		

@@ -188,7 +188,7 @@ namespace Mono.TextEditor
 			}
 			using (var undo = data.OpenUndoGroup ()) {
 				string indentationString = "\t";
-				bool convertTabToSpaces = data.Options.TabsToSpaces;
+				bool convertTabToSpaces = data.TabsToSpaces;
 				
 				if (!convertTabToSpaces && !data.Options.AllowTabsAfterNonTabs) {
 					for (int i = 1; i < data.Caret.Column; i++) {
@@ -204,8 +204,8 @@ namespace Mono.TextEditor
 					int tabWidth = TextViewMargin.GetNextTabstop (data, visualLocation.Column) - visualLocation.Column;
 					indentationString = new string (' ', tabWidth);
 				}
-				if (!(data.IsMultiLineSelection && data.MainSelection.SelectionMode == SelectionMode.Block) && data.IsSomethingSelected)
-					data.DeleteSelectedText ();
+				if (data.IsSomethingSelected)
+					data.DeleteSelectedText (data.MainSelection.SelectionMode != SelectionMode.Block);
 				data.InsertAtCaret (indentationString);
 			}
 		}

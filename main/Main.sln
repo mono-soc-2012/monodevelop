@@ -21,14 +21,13 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MonoDevelop.Projects.Format
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MonoDevelop.Projects.Formats.MSBuild.v3.5", "src\core\MonoDevelop.Projects.Formats.MSBuild\MonoDevelop.Projects.Formats.MSBuild.v3.5.csproj", "{40a31ade-6f26-4d99-a3c7-87bb8236151d}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MonoDevelop.Projects.Formats.MSBuild.dotnet.v4.0", "src\core\MonoDevelop.Projects.Formats.MSBuild\MonoDevelop.Projects.Formats.MSBuild.dotnet.v4.0.csproj", "{db96f55e-41c5-4330-a427-15a4ec028bbe}"
+EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Addins", "Addins", "{D417E929-2B3A-46AC-BBE8-027ADB63A790}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ILAsmBinding", "src\addins\ILAsmBinding\ILAsmBinding.csproj", "{961B9266-C44A-42B6-BA3D-3FB229C9C417}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "VersionControl", "VersionControl", "{DEEB9163-3966-4E5E-9AB5-FBB3E01AC82A}"
-	ProjectSection(MonoDevelopProperties) = preProject
-		outputpath = ../../build/AddIns/VersionControl
-	EndProjectSection
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MonoDevelop.VersionControl", "src\addins\VersionControl\MonoDevelop.VersionControl\MonoDevelop.VersionControl.csproj", "{19DE0F35-D204-4FD8-A553-A19ECE05E24D}"
 EndProject
@@ -174,6 +173,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mono.Cecil", "external\ceci
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mono.Cecil.Mdb", "external\cecil\symbols\mdb\Mono.Cecil.Mdb.csproj", "{8559DD7F-A16F-46D0-A05A-9139FAEBA8FD}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Sharpen.Unix", "external\ngit\Sharpen.Unix\Sharpen.Unix.csproj", "{849AE05D-0058-4A8C-A0E8-77DC6BB12E52}"
+EndProject
 Project("{9344bdbb-3e7f-41fc-a0dd-8665d75ee146}") = "po", "po\po.mdproj", "{AC7D119C-980B-4712-8811-5368C14412D7}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Tools", "Tools", "{5D3F7E65-E55B-45CA-A83B-D1E10040281E}"
@@ -184,12 +185,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "mdtool", "src\tools\mdtool\
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "mdmonitor", "src\tools\mdmonitor\mdmonitor.csproj", "{D0B5AF2B-4BC1-4EB4-81D3-E5B85DDCE925}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MonoDevelop.CrashLog", "src\tools\mdcrashlog\MonoDevelop.CrashLog.csproj", "{D90DF5C6-0ABE-4E13-930D-C3AE95FBE5C4}"
-EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{78C10DAE-D3D7-44FC-93DF-831D8D54ECF9}"
-	ProjectSection(MonoDevelopProperties) = preProject
-		BaseDirectory = tests
-	EndProjectSection
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "UnitTests", "tests\UnitTests\UnitTests.csproj", "{1497D0A8-AFF1-4938-BC22-BE79B358BA5B}"
 EndProject
@@ -205,6 +201,8 @@ Global
 		Release|Any CPU = Release|Any CPU
 		DebugWin32|x86 = DebugWin32|x86
 		DebugMac|Any CPU = DebugMac|Any CPU
+		Debug|x86 = Debug|x86
+		Release|x86 = Release|x86
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
 		{01206ab0-8871-42e7-9355-52e4cf1b7b9a}.Debug|Any CPU.ActiveCfg = Debug|x86
@@ -403,12 +401,16 @@ Global
 		{3D363F0C-5731-42AA-9022-B7F4657F298A}.Release|Any CPU.Build.0 = Release|Any CPU
 		{40a31ade-6f26-4d99-a3c7-87bb8236151d}.Debug|Any CPU.ActiveCfg = Debug|x86
 		{40a31ade-6f26-4d99-a3c7-87bb8236151d}.Debug|Any CPU.Build.0 = Debug|x86
+		{40a31ade-6f26-4d99-a3c7-87bb8236151d}.Debug|x86.ActiveCfg = Debug|x86
+		{40a31ade-6f26-4d99-a3c7-87bb8236151d}.Debug|x86.Build.0 = Debug|x86
 		{40a31ade-6f26-4d99-a3c7-87bb8236151d}.DebugMac|Any CPU.ActiveCfg = Debug|x86
 		{40a31ade-6f26-4d99-a3c7-87bb8236151d}.DebugMac|Any CPU.Build.0 = Debug|x86
 		{40a31ade-6f26-4d99-a3c7-87bb8236151d}.DebugWin32|x86.ActiveCfg = Debug|x86
 		{40a31ade-6f26-4d99-a3c7-87bb8236151d}.DebugWin32|x86.Build.0 = Debug|x86
 		{40a31ade-6f26-4d99-a3c7-87bb8236151d}.Release|Any CPU.ActiveCfg = Release|x86
 		{40a31ade-6f26-4d99-a3c7-87bb8236151d}.Release|Any CPU.Build.0 = Release|x86
+		{40a31ade-6f26-4d99-a3c7-87bb8236151d}.Release|x86.ActiveCfg = Release|x86
+		{40a31ade-6f26-4d99-a3c7-87bb8236151d}.Release|x86.Build.0 = Release|x86
 		{459868D2-54DC-415B-B1AB-BE39BDBD352F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{459868D2-54DC-415B-B1AB-BE39BDBD352F}.DebugMac|Any CPU.ActiveCfg = Debug|Any CPU
 		{459868D2-54DC-415B-B1AB-BE39BDBD352F}.DebugWin32|x86.ActiveCfg = Debug|Any CPU
@@ -481,6 +483,18 @@ Global
 		{7FCDB0D9-AA7D-44E4-BE74-55312B432389}.DebugWin32|x86.Build.0 = Debug|Any CPU
 		{7FCDB0D9-AA7D-44E4-BE74-55312B432389}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{7FCDB0D9-AA7D-44E4-BE74-55312B432389}.Release|Any CPU.Build.0 = Release|Any CPU
+		{849AE05D-0058-4A8C-A0E8-77DC6BB12E52}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{849AE05D-0058-4A8C-A0E8-77DC6BB12E52}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{849AE05D-0058-4A8C-A0E8-77DC6BB12E52}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{849AE05D-0058-4A8C-A0E8-77DC6BB12E52}.Debug|x86.Build.0 = Debug|Any CPU
+		{849AE05D-0058-4A8C-A0E8-77DC6BB12E52}.DebugMac|Any CPU.ActiveCfg = Debug|Any CPU
+		{849AE05D-0058-4A8C-A0E8-77DC6BB12E52}.DebugMac|Any CPU.Build.0 = Debug|Any CPU
+		{849AE05D-0058-4A8C-A0E8-77DC6BB12E52}.DebugWin32|x86.ActiveCfg = Debug|Any CPU
+		{849AE05D-0058-4A8C-A0E8-77DC6BB12E52}.DebugWin32|x86.Build.0 = Debug|Any CPU
+		{849AE05D-0058-4A8C-A0E8-77DC6BB12E52}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{849AE05D-0058-4A8C-A0E8-77DC6BB12E52}.Release|Any CPU.Build.0 = Release|Any CPU
+		{849AE05D-0058-4A8C-A0E8-77DC6BB12E52}.Release|x86.ActiveCfg = Release|Any CPU
+		{849AE05D-0058-4A8C-A0E8-77DC6BB12E52}.Release|x86.Build.0 = Release|Any CPU
 		{8559DD7F-A16F-46D0-A05A-9139FAEBA8FD}.Debug|Any CPU.ActiveCfg = net_4_0_Debug|Any CPU
 		{8559DD7F-A16F-46D0-A05A-9139FAEBA8FD}.Debug|Any CPU.Build.0 = net_4_0_Debug|Any CPU
 		{8559DD7F-A16F-46D0-A05A-9139FAEBA8FD}.DebugMac|Any CPU.ActiveCfg = net_4_0_Debug|Any CPU
@@ -505,12 +519,12 @@ Global
 		{875D389F-48D1-4D46-BFC6-998837DD6AE0}.DebugWin32|x86.Build.0 = Debug|Any CPU
 		{875D389F-48D1-4D46-BFC6-998837DD6AE0}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{875D389F-48D1-4D46-BFC6-998837DD6AE0}.Release|Any CPU.Build.0 = Release|Any CPU
-		{8A04FF99-5DFE-4E3D-A24F-72A621C8DDC6}.Debug|Any CPU.ActiveCfg = Debug|x86
-		{8A04FF99-5DFE-4E3D-A24F-72A621C8DDC6}.Debug|Any CPU.Build.0 = Debug|x86
+		{8A04FF99-5DFE-4E3D-A24F-72A621C8DDC6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8A04FF99-5DFE-4E3D-A24F-72A621C8DDC6}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{8A04FF99-5DFE-4E3D-A24F-72A621C8DDC6}.DebugMac|Any CPU.ActiveCfg = Debug|Any CPU
 		{8A04FF99-5DFE-4E3D-A24F-72A621C8DDC6}.DebugMac|Any CPU.Build.0 = Debug|Any CPU
-		{8A04FF99-5DFE-4E3D-A24F-72A621C8DDC6}.DebugWin32|x86.ActiveCfg = Debug|x86
-		{8A04FF99-5DFE-4E3D-A24F-72A621C8DDC6}.DebugWin32|x86.Build.0 = Debug|x86
+		{8A04FF99-5DFE-4E3D-A24F-72A621C8DDC6}.DebugWin32|x86.ActiveCfg = Debug|Any CPU
+		{8A04FF99-5DFE-4E3D-A24F-72A621C8DDC6}.DebugWin32|x86.Build.0 = Debug|Any CPU
 		{8A04FF99-5DFE-4E3D-A24F-72A621C8DDC6}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{8A04FF99-5DFE-4E3D-A24F-72A621C8DDC6}.Release|Any CPU.Build.0 = Release|Any CPU
 		{8CCA39DD-8412-4547-BE7F-0C3D3ACC6FAC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
@@ -613,7 +627,6 @@ Global
 		{A7A4246D-CEC4-42DF-A3C1-C31B9F51C4EC}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{A7A4246D-CEC4-42DF-A3C1-C31B9F51C4EC}.Release|Any CPU.Build.0 = Release|Any CPU
 		{AC7D119C-980B-4712-8811-5368C14412D7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{AC7D119C-980B-4712-8811-5368C14412D7}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{AC7D119C-980B-4712-8811-5368C14412D7}.DebugMac|Any CPU.ActiveCfg = Debug|Any CPU
 		{AC7D119C-980B-4712-8811-5368C14412D7}.DebugWin32|x86.ActiveCfg = Debug|Any CPU
 		{AC7D119C-980B-4712-8811-5368C14412D7}.DebugWin32|x86.Build.0 = Debug|Any CPU
@@ -709,14 +722,6 @@ Global
 		{D68133BD-1E63-496E-9EDE-4FBDBF77B486}.DebugWin32|x86.Build.0 = net_4_0_Debug|Any CPU
 		{D68133BD-1E63-496E-9EDE-4FBDBF77B486}.Release|Any CPU.ActiveCfg = net_4_0_Release|Any CPU
 		{D68133BD-1E63-496E-9EDE-4FBDBF77B486}.Release|Any CPU.Build.0 = net_4_0_Release|Any CPU
-		{D90DF5C6-0ABE-4E13-930D-C3AE95FBE5C4}.Debug|Any CPU.ActiveCfg = Debug|x86
-		{D90DF5C6-0ABE-4E13-930D-C3AE95FBE5C4}.Debug|Any CPU.Build.0 = Debug|x86
-		{D90DF5C6-0ABE-4E13-930D-C3AE95FBE5C4}.DebugMac|Any CPU.ActiveCfg = Debug|x86
-		{D90DF5C6-0ABE-4E13-930D-C3AE95FBE5C4}.DebugMac|Any CPU.Build.0 = Debug|x86
-		{D90DF5C6-0ABE-4E13-930D-C3AE95FBE5C4}.DebugWin32|x86.ActiveCfg = Debug|x86
-		{D90DF5C6-0ABE-4E13-930D-C3AE95FBE5C4}.DebugWin32|x86.Build.0 = Debug|x86
-		{D90DF5C6-0ABE-4E13-930D-C3AE95FBE5C4}.Release|Any CPU.ActiveCfg = Release|x86
-		{D90DF5C6-0ABE-4E13-930D-C3AE95FBE5C4}.Release|Any CPU.Build.0 = Release|x86
 		{DA8EDEA6-7DA8-435D-B1A0-F3A0CA07F424}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{DA8EDEA6-7DA8-435D-B1A0-F3A0CA07F424}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{DA8EDEA6-7DA8-435D-B1A0-F3A0CA07F424}.DebugMac|Any CPU.ActiveCfg = Debug|Any CPU
@@ -725,6 +730,16 @@ Global
 		{DA8EDEA6-7DA8-435D-B1A0-F3A0CA07F424}.DebugWin32|x86.Build.0 = Debug|x86
 		{DA8EDEA6-7DA8-435D-B1A0-F3A0CA07F424}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{DA8EDEA6-7DA8-435D-B1A0-F3A0CA07F424}.Release|Any CPU.Build.0 = Release|Any CPU
+		{db96f55e-41c5-4330-a427-15a4ec028bbe}.Debug|Any CPU.ActiveCfg = Debug|x86
+		{db96f55e-41c5-4330-a427-15a4ec028bbe}.Debug|x86.ActiveCfg = Debug|x86
+		{db96f55e-41c5-4330-a427-15a4ec028bbe}.Debug|x86.Build.0 = Debug|x86
+		{db96f55e-41c5-4330-a427-15a4ec028bbe}.DebugMac|Any CPU.ActiveCfg = Debug|x86
+		{db96f55e-41c5-4330-a427-15a4ec028bbe}.DebugWin32|x86.ActiveCfg = Debug|x86
+		{db96f55e-41c5-4330-a427-15a4ec028bbe}.DebugWin32|x86.Build.0 = Debug|x86
+		{db96f55e-41c5-4330-a427-15a4ec028bbe}.Release|Any CPU.ActiveCfg = Release|x86
+		{db96f55e-41c5-4330-a427-15a4ec028bbe}.Release|Any CPU.Build.0 = Release|x86
+		{db96f55e-41c5-4330-a427-15a4ec028bbe}.Release|x86.ActiveCfg = Release|x86
+		{db96f55e-41c5-4330-a427-15a4ec028bbe}.Release|x86.Build.0 = Release|x86
 		{DE40756E-57F6-4AF2-B155-55E3A88CCED8}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{DE40756E-57F6-4AF2-B155-55E3A88CCED8}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{DE40756E-57F6-4AF2-B155-55E3A88CCED8}.DebugMac|Any CPU.ActiveCfg = Debug|Any CPU
@@ -807,6 +822,7 @@ Global
 		{A437F1A3-78DF-4F00-8053-D32A8B1EB679} = {8F48ECA6-CFFF-4EBF-BC92-817199EDE9AF}
 		{01206ab0-8871-42e7-9355-52e4cf1b7b9a} = {8F48ECA6-CFFF-4EBF-BC92-817199EDE9AF}
 		{40a31ade-6f26-4d99-a3c7-87bb8236151d} = {8F48ECA6-CFFF-4EBF-BC92-817199EDE9AF}
+		{db96f55e-41c5-4330-a427-15a4ec028bbe} = {8F48ECA6-CFFF-4EBF-BC92-817199EDE9AF}
 		{961B9266-C44A-42B6-BA3D-3FB229C9C417} = {D417E929-2B3A-46AC-BBE8-027ADB63A790}
 		{DEEB9163-3966-4E5E-9AB5-FBB3E01AC82A} = {D417E929-2B3A-46AC-BBE8-027ADB63A790}
 		{02280E65-C507-4931-AE68-AA2E89E15EEF} = {D417E929-2B3A-46AC-BBE8-027ADB63A790}
@@ -880,10 +896,10 @@ Global
 		{53DCA265-3C3C-42F9-B647-F72BA678122B} = {F12939F1-D55A-4CE9-9F33-8D959BFC7D6C}
 		{D68133BD-1E63-496E-9EDE-4FBDBF77B486} = {F12939F1-D55A-4CE9-9F33-8D959BFC7D6C}
 		{8559DD7F-A16F-46D0-A05A-9139FAEBA8FD} = {F12939F1-D55A-4CE9-9F33-8D959BFC7D6C}
+		{849AE05D-0058-4A8C-A0E8-77DC6BB12E52} = {F12939F1-D55A-4CE9-9F33-8D959BFC7D6C}
 		{BFE8691A-D323-4622-9021-7B8B27F81599} = {5D3F7E65-E55B-45CA-A83B-D1E10040281E}
 		{8A04FF99-5DFE-4E3D-A24F-72A621C8DDC6} = {5D3F7E65-E55B-45CA-A83B-D1E10040281E}
 		{D0B5AF2B-4BC1-4EB4-81D3-E5B85DDCE925} = {5D3F7E65-E55B-45CA-A83B-D1E10040281E}
-		{D90DF5C6-0ABE-4E13-930D-C3AE95FBE5C4} = {5D3F7E65-E55B-45CA-A83B-D1E10040281E}
 		{1497D0A8-AFF1-4938-BC22-BE79B358BA5B} = {78C10DAE-D3D7-44FC-93DF-831D8D54ECF9}
 		{07F55155-51A8-4072-9F80-FA473666F086} = {78C10DAE-D3D7-44FC-93DF-831D8D54ECF9}
 		{76495467-E8BF-43B0-A03C-18C6341966B9} = {78C10DAE-D3D7-44FC-93DF-831D8D54ECF9}
@@ -948,7 +964,7 @@ Global
 		$1.name = Update Stetic
 		$1.command = make update-stetic
 		$1.workingdir = "${SolutionDir}/src/addins/MonoDevelop.GtkCore"
-		$1.externalConsole = true
-		$1.pauseExternalConsole = true
+		$1.externalConsole = True
+		$1.pauseExternalConsole = True
 	EndGlobalSection
 EndGlobal

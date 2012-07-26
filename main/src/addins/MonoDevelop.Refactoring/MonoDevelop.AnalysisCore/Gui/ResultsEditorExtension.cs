@@ -118,12 +118,16 @@ namespace MonoDevelop.AnalysisCore.Gui
 				return;
 			if (src != null) {
 				src.Cancel ();
-				oldTask.Wait ();
+				try {
+					oldTask.Wait ();
+				} catch (AggregateException ex) {
+					ex.Handle (e => e is TaskCanceledException);
+				}
 			}
 			src = new CancellationTokenSource ();
 			var treeType = new RuleTreeType ("Document", Path.GetExtension (doc.FileName));
-			var task = AnalysisService.QueueAnalysis (Document, treeType);
-			oldTask = task.ContinueWith (t => new ResultsUpdater (this, t.Result, src.Token).Update ());
+			var task = AnalysisService.QueueAnalysis (Document, treeType, src.Token);
+			oldTask = task.ContinueWith (t => new ResultsUpdater (this, t.Result, src.Token).Update (), src.Token);
 		}
 		
 		class ResultsUpdater 
@@ -200,13 +204,15 @@ namespace MonoDevelop.AnalysisCore.Gui
 		
 		const int UPDATE_COUNT = 20;
 		
-		public IList<Result> GetResultsAtOffset (int offset)
+		public IList<Result> GetResultsAtOffset (int offset, CancellationToken token = default (CancellationToken))
 		{
 			var location = Editor.Document.OffsetToLocation (offset);
 			var line = Editor.GetLineByOffset (offset);
 			
 			var list = new List<Result> ();
 			foreach (var marker in line.Markers) {
+				if (token.IsCancellationRequested)
+					break;
 				var resultMarker = marker as ResultMarker;
 				if (resultMarker == null || resultMarker.Line != location.Line)
 					continue;

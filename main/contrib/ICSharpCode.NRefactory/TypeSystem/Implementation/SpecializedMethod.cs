@@ -21,7 +21,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Text;
-
+using System.Threading;
 using ICSharpCode.NRefactory.Utils;
 
 namespace ICSharpCode.NRefactory.TypeSystem.Implementation
@@ -121,6 +121,27 @@ namespace ICSharpCode.NRefactory.TypeSystem.Implementation
 			get { return methodDefinition.IsOperator; }
 		}
 		
+		public bool IsAccessor {
+			get { return methodDefinition.IsAccessor; }
+		}
+		
+		IMember accessorOwner;
+		
+		public IMember AccessorOwner {
+			get {
+				var result = LazyInit.VolatileRead(ref accessorOwner);
+				if (result != null) {
+					return result;
+				} else {
+					result = SpecializedMember.Create(methodDefinition.AccessorOwner, this.Substitution);
+					return LazyInit.GetOrSet(ref accessorOwner, result);
+				}
+			}
+			internal set {
+				accessorOwner = value;
+			}
+		}
+		
 		public override IMemberReference ToMemberReference()
 		{
 			// Pass the MethodTypeArguments to the SpecializingMemberReference only if
@@ -174,6 +195,9 @@ namespace ICSharpCode.NRefactory.TypeSystem.Implementation
 					b.Append(this.TypeArguments[i].ReflectionName);
 				}
 				b.Append(']');
+			} else if (this.TypeParameters.Count > 0) {
+				b.Append("``");
+				b.Append(this.TypeParameters.Count);
 			}
 			b.Append('(');
 			for (int i = 0; i < this.Parameters.Count; i++) {

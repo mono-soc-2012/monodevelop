@@ -103,6 +103,15 @@ namespace Mono.TextEditor
 			protected set;
 		}
 
+		bool? customTabsToSpaces;
+		public bool TabsToSpaces {
+			get {
+				return customTabsToSpaces.HasValue ? customTabsToSpaces.Value : options.TabsToSpaces;
+			}
+			set {
+				customTabsToSpaces = value;
+			}
+		}
 		
 		public TextEditorData () : this (new TextDocument ())
 		{
@@ -142,9 +151,13 @@ namespace Mono.TextEditor
 
 		void HandleDocTextSet (object sender, EventArgs e)
 		{
-			caret.SetDocument (document);
+			if (vadjustment != null)
+				vadjustment.Value = vadjustment.Lower;
+			if (hadjustment != null)
+				hadjustment.Value = hadjustment.Lower;
 			HeightTree.Rebuild ();
 			ClearSelection ();
+			caret.SetDocument (document);
 		}
 
 		public double GetLineHeight (DocumentLine line)
@@ -175,7 +188,7 @@ namespace Mono.TextEditor
 
 		void HandleTextReplaced (object sender, DocumentChangeEventArgs e)
 		{
-			caret.UpdateCaretPosition ();
+			caret.UpdateCaretPosition (e);
 		}
 
 
@@ -335,7 +348,7 @@ namespace Mono.TextEditor
 			if (string.IsNullOrEmpty (str))
 				return "";
 			StringBuilder sb = new StringBuilder ();
-			bool convertTabs = Options.TabsToSpaces;
+			bool convertTabs = TabsToSpaces;
 			
 			for (int i = 0; i < str.Length; i++) {
 				char ch = str [i];
@@ -425,7 +438,8 @@ namespace Mono.TextEditor
 			document.Undone -= DocumentHandleUndone;
 			document.Redone -= DocumentHandleRedone;
 			document.LineChanged -= HandleDocLineChanged;
-			
+			document.TextReplaced -= HandleTextReplaced;
+
 			document.TextSet -= HandleDocTextSet;
 			document.Folded -= HandleTextEditorDataDocumentFolded;
 			document.FoldTreeUpdated -= HandleFoldTreeUpdated;

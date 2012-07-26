@@ -189,10 +189,9 @@ namespace MonoDevelop.SourceEditor
 				if (messageBubbleCache != null && messageBubbleCache.RemoveLine (e.Line)) {
 					MessageBubbleTextMarker marker = currentErrorMarkers.FirstOrDefault (m => m.LineSegment == e.Line);
 					if (marker != null) {
-						double oldHeight = marker.lastHeight;
 						widget.TextEditor.TextViewMargin.RemoveCachedLine (e.Line); 
 						// ensure that the line cache is renewed
-						double newHeight = marker.GetLineHeight (widget.TextEditor);
+						marker.GetLineHeight (widget.TextEditor);
 					}
 				}
 			};
@@ -226,14 +225,7 @@ namespace MonoDevelop.SourceEditor
 			currentDebugLineMarker = new CurrentDebugLineTextMarker (widget.TextEditor);
 			
 
-			this.WorkbenchWindowChanged += delegate {
-				if (WorkbenchWindow != null) {
-					widget.TextEditor.ExtensionContext = WorkbenchWindow.ExtensionContext;
-					WorkbenchWindow.ActiveViewContentChanged += delegate {
-						widget.UpdateLineCol ();
-					};
-				}
-			};
+			this.WorkbenchWindowChanged += HandleWorkbenchWindowChanged;
 			this.ContentNameChanged += delegate {
 				this.Document.FileName = this.ContentName;
 				if (String.IsNullOrEmpty (ContentName) || !File.Exists (ContentName))
@@ -264,6 +256,20 @@ namespace MonoDevelop.SourceEditor
 			IdeApp.Preferences.DefaultHideMessageBubblesChanged += HandleIdeAppPreferencesDefaultHideMessageBubblesChanged;
 			Document.AddAnnotation (this);
 			FileRegistry.Add (this);
+		}
+
+		void HandleWorkbenchWindowChanged (object sender, EventArgs e)
+		{
+			if (WorkbenchWindow != null) {
+				widget.TextEditor.ExtensionContext = WorkbenchWindow.ExtensionContext;
+				WorkbenchWindow.ActiveViewContentChanged += HandleActiveViewContentChanged;
+				this.WorkbenchWindowChanged -= HandleWorkbenchWindowChanged;
+			}
+		}
+
+		void HandleActiveViewContentChanged (object o, ActiveViewContentEventArgs e)
+		{
+			widget.UpdateLineCol ();
 		}
 		
 		MessageBubbleHighlightPopupWindow messageBubbleHighlightPopupWindow = null;
@@ -708,10 +714,9 @@ namespace MonoDevelop.SourceEditor
 			
 			if (messageBubbleHighlightPopupWindow != null)
 				messageBubbleHighlightPopupWindow.Destroy ();
-			
+
 			IdeApp.Preferences.DefaultHideMessageBubblesChanged -= HandleIdeAppPreferencesDefaultHideMessageBubblesChanged;
 			IdeApp.Preferences.ShowMessageBubblesChanged -= HandleIdeAppPreferencesShowMessageBubblesChanged;
-			MonoDevelop.Ide.Gui.Pads.ErrorListPad errorListPad = IdeApp.Workbench.GetPad<MonoDevelop.Ide.Gui.Pads.ErrorListPad> ().Content as MonoDevelop.Ide.Gui.Pads.ErrorListPad;
 			TaskService.TaskToggled -= HandleErrorListPadTaskToggled;
 			
 			DisposeErrorMarkers ();
@@ -772,7 +777,7 @@ namespace MonoDevelop.SourceEditor
 		
 		void OnTextReplacing (object s, DocumentChangeEventArgs a)
 		{
-			oldReplaceText = a.RemovedText;
+			oldReplaceText = a.RemovedText.Text;
 		}
 		
 		void OnTextReplaced (object s, DocumentChangeEventArgs a)
@@ -792,7 +797,7 @@ namespace MonoDevelop.SourceEditor
 
 			if (a.InsertedText != null) {
 				i = 0;
-				string sb = a.InsertedText;
+				string sb = a.InsertedText.Text;
 				while (i < sb.Length) {
 					if (sb [i] == '\n')
 						lines++;
@@ -1068,7 +1073,7 @@ namespace MonoDevelop.SourceEditor
 			if (args.TriggersContextMenu ()) {
 				TextEditor.Caret.Line = args.LineNumber;
 				TextEditor.Caret.Column = 1;
-				IdeApp.CommandService.ShowContextMenu (WorkbenchWindow.ExtensionContext, "/MonoDevelop/SourceEditor2/IconContextMenu/Editor");
+				IdeApp.CommandService.ShowContextMenu (TextEditor, args.RawEvent as Gdk.EventButton, "/MonoDevelop/SourceEditor2/IconContextMenu/Editor");
 			} else if (args.Button == 1) {
 				if (!string.IsNullOrEmpty (this.Document.FileName)) {
 					if (args.LineSegment != null)
@@ -1558,10 +1563,12 @@ namespace MonoDevelop.SourceEditor
 		public void SetCompletionText (CodeCompletionContext ctx, string partial_word, string complete_word, int wordOffset)
 		{
 			var data = GetTextEditorData ();
+			if (data == null)
+				return;
 			using (var undo = data.OpenUndoGroup ()) {
 				SetCompletionText (data, ctx, partial_word, complete_word, wordOffset);
 				var formatter = CodeFormatterService.GetFormatter (data.MimeType);
-				if (complete_word.IndexOfAny (new [] {' ', '\t', '{', '}'}) > 0 && formatter.SupportsOnTheFlyFormatting) {
+				if (formatter != null && complete_word.IndexOfAny (new [] {' ', '\t', '{', '}'}) > 0 && formatter.SupportsOnTheFlyFormatting) {
 					formatter.OnTheFlyFormat (WorkbenchWindow.Document, ctx.TriggerOffset, ctx.TriggerOffset + complete_word.Length);
 				}
 			}

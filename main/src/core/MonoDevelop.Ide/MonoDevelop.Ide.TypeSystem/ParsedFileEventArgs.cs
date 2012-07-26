@@ -1,10 +1,10 @@
 // 
-// ImplementImplicit.cs
+// ParsedFileEventArgs.cs
 //  
 // Author:
 //       Mike Krüger <mkrueger@novell.com>
 // 
-// Copyright (c) 2009 Novell, Inc (http://www.novell.com)
+// Copyright (c) 2011 Mike Krüger <mkrueger@novell.com>
 // 
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -24,32 +24,21 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-using MonoDevelop.Core;
-using Mono.TextEditor;
-using MonoDevelop.Ide;
-using System.Linq;
-using Mono.TextEditor.PopupWindow;
-using System.Collections.Generic;
+using System;
 using ICSharpCode.NRefactory.TypeSystem;
 
-namespace MonoDevelop.Refactoring.ImplementInterface
+namespace MonoDevelop.Ide.TypeSystem
 {
-	public class ImplementImplicit : RefactoringOperation
+	public class ParsedFileEventArgs : EventArgs
 	{
-		public override string GetMenuDescription (RefactoringOptions options)
-		{
-			return GettextCatalog.GetString ("_Implement implicit");
+		public IParsedFile File {
+			get;
+			private set;
 		}
-		
-		public override bool IsValid (RefactoringOptions options)
+
+		public ParsedFileEventArgs (IParsedFile file)
 		{
-			IType interfaceType;
-			return ImplementExplicit.InternalIsValid (options, out interfaceType);
-		}
-		
-		public override void Run (RefactoringOptions options)
-		{
-			ImplementExplicit.InternalRun (options, false);
+			this.File = file;
 		}
 	}
 }

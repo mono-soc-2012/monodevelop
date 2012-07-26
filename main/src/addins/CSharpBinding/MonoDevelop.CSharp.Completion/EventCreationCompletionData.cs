@@ -63,7 +63,7 @@ namespace MonoDevelop.CSharp.Completion
 					}
 				}
 			}
-			this.editor        = ext.textEditorData;
+			this.editor        = ext.TextEditorData;
 			this.parameterList = parameterList;
 			this.callingMember = callingMember;
 			this.Icon          = "md-newmethod";
@@ -121,8 +121,8 @@ namespace MonoDevelop.CSharp.Completion
 			link.AddLink (new TextSegment (pos - initialOffset + pos2, this.DisplayText.Length));
 			links.Add (link);
 			
-			CompletionTextLinkMode tle = new CompletionTextLinkMode (editor.Parent, initialOffset, links);
-			tle.TriggerCodeCompletion = false;
+			var tle = new TextLinkEditMode (editor.Parent, initialOffset, links);
+			tle.TextLinkMode = TextLinkMode.EditIdentifier;
 			tle.SetCaretPosition = true;
 			tle.SelectPrimaryLink = true;
 			tle.OldMode = editor.CurrentMode;

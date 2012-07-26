@@ -14,7 +14,7 @@
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
     <ProductVersion>10.0.0</ProductVersion>
     <SchemaVersion>2.0</SchemaVersion>
-    <SignAssembly>true</SignAssembly>
+    <SignAssembly>True</SignAssembly>
     <AssemblyOriginatorKeyFile>..\ICSharpCode.NRefactory\ICSharpCode.NRefactory.snk</AssemblyOriginatorKeyFile>
     <DelaySign>False</DelaySign>
     <AssemblyOriginatorKeyMode>File</AssemblyOriginatorKeyMode>
@@ -29,7 +29,7 @@
   <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
     <OutputPath>..\ICSharpCode.NRefactory\bin\Debug\</OutputPath>
     <DebugSymbols>true</DebugSymbols>
-    <DebugType>Full</DebugType>
+    <DebugType>full</DebugType>
     <Optimize>False</Optimize>
     <CheckForOverflowUnderflow>False</CheckForOverflowUnderflow>
     <DefineConstants>DEBUG;TRACE;FULL_AST</DefineConstants>
@@ -281,7 +281,6 @@
     <Compile Include="TypeSystem\TypeOrNamespaceReference.cs" />
     <Compile Include="TypeSystem\TypeSystemConvertVisitor.cs" />
     <Compile Include="TypeSystem\UsingScope.cs" />
-    <Compile Include="Completion\IMemberProvider.cs" />
     <Compile Include="Parser\mcs\module.cs" />
     <Compile Include="Parser\mcs\settings.cs" />
     <Compile Include="Analysis\ReachabilityAnalysis.cs" />
@@ -370,6 +369,11 @@
     <Compile Include="Refactoring\CodeActions\ImplementAbstractMembersAction.cs" />
     <Compile Include="Refactoring\CodeActions\ImplementInterfaceAction.cs" />
     <Compile Include="Refactoring\CodeActions\ImplementInterfaceExplicitAction.cs" />
+    <Compile Include="Completion\ICompletionContextProvider.cs" />
+    <Compile Include="Parser\CompilerSettings.cs" />
+    <Compile Include="Refactoring\CodeActions\ExtractMethod\VariableUsageAnalyzation.cs" />
+    <Compile Include="Resolver\DynamicInvocationResolveResult.cs" />
+    <Compile Include="Resolver\DynamicMemberResolveResult.cs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\ICSharpCode.NRefactory\ICSharpCode.NRefactory.csproj">
@@ -379,21 +383,6 @@
     </ProjectReference>
   </ItemGroup>
   <Import Project="$(MSBuildBinPath)\Microsoft.CSharp.Targets" />
-  <ProjectExtensions>
-    <MonoDevelop>
-      <Properties>
-        <MonoDevelop.Autotools.MakefileInfo IntegrationEnabled="true" RelativeMakefileName="Makefile.am" SyncReferences="true" IsAutotoolsProject="true" RelativeConfigureInPath="../..">
-          <BuildFilesVar Sync="true" Name="FILES" />
-          <DeployFilesVar />
-          <ResourcesVar />
-          <OthersVar />
-          <GacRefVar Sync="true" Name="REFS" Prefix="-r:" />
-          <AsmRefVar Sync="true" Name="REFS" Prefix="-r:" />
-          <ProjectRefVar Sync="true" Name="REFS" Prefix="-r:" />
-        </MonoDevelop.Autotools.MakefileInfo>
-      </Properties>
-    </MonoDevelop>
-  </ProjectExtensions>
   <ItemGroup>
     <None Include="Parser\mcs\cs-parser.jay" />
   </ItemGroup>

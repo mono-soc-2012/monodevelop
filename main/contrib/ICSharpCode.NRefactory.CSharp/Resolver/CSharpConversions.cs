@@ -1,4 +1,4 @@
-// Copyright (c) AlphaSierraPapa for the SharpDevelop Team
+﻿// Copyright (c) AlphaSierraPapa for the SharpDevelop Team
 // 
 // Permission is hereby granted, free of charge, to any person obtaining a copy of this
 // software and associated documentation files (the "Software"), to deal in the Software
@@ -112,6 +112,8 @@ namespace ICSharpCode.NRefactory.CSharp.Resolver
 			}
 			c = ImplicitConversion(resolveResult.Type, toType);
 			if (c.IsValid) return c;
+			if (resolveResult.Type.Kind == TypeKind.Dynamic)
+				return Conversion.ImplicitDynamicConversion;
 			c = AnonymousFunctionConversion(resolveResult, toType);
 			if (c.IsValid) return c;
 			c = MethodGroupConversion(resolveResult, toType);
@@ -157,10 +159,8 @@ namespace ICSharpCode.NRefactory.CSharp.Resolver
 				return Conversion.NullLiteralConversion;
 			if (ImplicitReferenceConversion(fromType, toType, 0))
 				return Conversion.ImplicitReferenceConversion;
-			if (BoxingConversion(fromType, toType))
+			if (IsBoxingConversion(fromType, toType))
 				return Conversion.BoxingConversion;
-			if (fromType.Kind == TypeKind.Dynamic)
-				return Conversion.ImplicitDynamicConversion;
 			if (ImplicitTypeParameterConversion(fromType, toType)) {
 				// Implicit type parameter conversions that aren't also
 				// reference conversions are considered to be boxing conversions
@@ -186,7 +186,7 @@ namespace ICSharpCode.NRefactory.CSharp.Resolver
 				return true;
 			if (ImplicitReferenceConversion(fromType, toType, 0))
 				return true;
-			if (BoxingConversion(fromType, toType) && !NullableType.IsNullable(fromType))
+			if (IsBoxingConversion(fromType, toType) && !NullableType.IsNullable(fromType))
 				return true;
 			if (ImplicitTypeParameterConversion(fromType, toType))
 				return true;
@@ -238,6 +238,9 @@ namespace ICSharpCode.NRefactory.CSharp.Resolver
 			Conversion c = ExplicitNullableConversion(fromType, toType);
 			if (c.IsValid)
 				return c;
+			c = UserDefinedExplicitConversion(fromType, toType);
+			if (c.IsValid)
+				return c;
 			if (ExplicitReferenceConversion(fromType, toType))
 				return Conversion.ExplicitReferenceConversion;
 			if (UnboxingConversion(fromType, toType))
@@ -249,7 +252,7 @@ namespace ICSharpCode.NRefactory.CSharp.Resolver
 			}
 			if (ExplicitPointerConversion(fromType, toType))
 				return Conversion.ExplicitPointerConversion;
-			return UserDefinedExplicitConversion(fromType, toType);
+			return Conversion.None;
 		}
 		#endregion
 		
@@ -400,6 +403,11 @@ namespace ICSharpCode.NRefactory.CSharp.Resolver
 		#endregion
 		
 		#region Implicit Reference Conversion
+		public bool IsImplicitReferenceConversion(IType fromType, IType toType)
+		{
+			return ImplicitReferenceConversion(fromType, toType, 0);
+		}
+		
 		bool ImplicitReferenceConversion(IType fromType, IType toType, int subtypeCheckNestingDepth)
 		{
 			// C# 4.0 spec: §6.1.6
@@ -463,7 +471,9 @@ namespace ICSharpCode.NRefactory.CSharp.Resolver
 		bool IdentityOrVarianceConversion(IType s, IType t, int subtypeCheckNestingDepth)
 		{
 			ITypeDefinition def = s.GetDefinition();
-			if (def != null && def.Equals(t.GetDefinition())) {
+			if (def != null) {
+				if (!def.Equals(t.GetDefinition()))
+					return false;
 				ParameterizedType ps = s as ParameterizedType;
 				ParameterizedType pt = t as ParameterizedType;
 				if (ps != null && pt != null) {
@@ -491,8 +501,10 @@ namespace ICSharpCode.NRefactory.CSharp.Resolver
 					return false; // only of of them is parameterized, or counts don't match? -> not valid conversion
 				}
 				return true;
+			} else {
+				// not type definitions? we still need to check for equal types (e.g. s and t might be type parameters)
+				return s.Equals(t);
 			}
-			return false;
 		}
 		#endregion
 		
@@ -512,7 +524,7 @@ namespace ICSharpCode.NRefactory.CSharp.Resolver
 		#endregion
 		
 		#region Boxing Conversions
-		bool BoxingConversion(IType fromType, IType toType)
+		public bool IsBoxingConversion(IType fromType, IType toType)
 		{
 			// C# 4.0 spec: §6.1.7
 			fromType = NullableType.GetUnderlyingType(fromType);

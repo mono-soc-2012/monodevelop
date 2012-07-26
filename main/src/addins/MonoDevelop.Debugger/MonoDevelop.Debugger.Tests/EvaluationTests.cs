@@ -30,7 +30,7 @@ using NUnit.Framework;
 
 namespace MonoDevelop.Debugger.Tests
 {
-	public class EvaluationTests: DebugTests
+	public abstract class EvaluationTests: DebugTests
 	{
 		DebuggerSession ds;
 		StackFrame frame;
@@ -49,7 +49,7 @@ namespace MonoDevelop.Debugger.Tests
 		public override void TearDown ()
 		{
 			base.TearDown ();
-			ds.Stop ();
+			ds.Exit ();
 			ds.Dispose ();
 		}
 

@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 cdFILES = AspLanguageBuilder.cs
 
 DEPS =  \
@@ -42,3 +43,6 @@ include $(top_srcdir)/Makefile.include
 
 csharpbindinglibdir = $(MD_ADDIN_DIR)/BackendBindings
 csharpbindinglib_DATA = $(ASSEMBLY) $(ASSEMBLY).mdb
+=======
+include $(top_srcdir)/xbuild.include
+>>>>>>> origin/master

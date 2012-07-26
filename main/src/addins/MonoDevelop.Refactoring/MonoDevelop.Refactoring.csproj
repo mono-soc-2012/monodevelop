@@ -11,22 +11,22 @@
     <RootNamespace>MonoDevelop.Refactoring</RootNamespace>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
-    <DebugSymbols>true</DebugSymbols>
+    <DebugSymbols>True</DebugSymbols>
     <DebugType>full</DebugType>
-    <Optimize>false</Optimize>
+    <Optimize>False</Optimize>
     <OutputPath>..\..\..\build\AddIns\MonoDevelop.Refactoring</OutputPath>
     <DefineConstants>DEBUG</DefineConstants>
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
-    <ConsolePause>false</ConsolePause>
+    <ConsolePause>False</ConsolePause>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
     <DebugType>none</DebugType>
-    <Optimize>false</Optimize>
+    <Optimize>False</Optimize>
     <OutputPath>..\..\..\build\AddIns\MonoDevelop.Refactoring</OutputPath>
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
-    <ConsolePause>false</ConsolePause>
+    <ConsolePause>False</ConsolePause>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="System" />
@@ -91,9 +91,6 @@
     <Compile Include="MonoDevelop.Refactoring\RefactoringPreviewDialog.cs" />
     <Compile Include="gtk-gui\MonoDevelop.Refactoring.RefactoringPreviewDialog.cs" />
     <Compile Include="MonoDevelop.Refactoring\FindDerivedClassesHandler.cs" />
-    <Compile Include="MonoDevelop.Refactoring.ImplementInterface\ImplementImplicit.cs" />
-    <Compile Include="MonoDevelop.Refactoring.ImplementInterface\ImplementExplicit.cs" />
-    <Compile Include="MonoDevelop.Refactoring.ImplementInterface\ImplementAbstractMembers.cs" />
     <Compile Include="MonoDevelop.Refactoring\ImportSymbolHandler.cs" />
     <Compile Include="MonoDevelop.CodeIssues\CodeIssueProvider.cs" />
     <Compile Include="MonoDevelop.CodeIssues\CodeIssue.cs" />
@@ -119,7 +116,6 @@
   <ItemGroup>
     <Folder Include="MonoDevelop.Refactoring\" />
     <Folder Include="MonoDevelop.Refactoring.Rename\" />
-    <Folder Include="MonoDevelop.Refactoring.ImplementInterface\" />
     <Folder Include="MonoDevelop.AnalysisCore\" />
     <Folder Include="MonoDevelop.CodeIssues\" />
     <Folder Include="MonoDevelop.CodeActions\" />
@@ -170,21 +166,6 @@
     </ProjectReference>
   </ItemGroup>
   <Import Project="$(MSBuildBinPath)\Microsoft.CSharp.targets" />
-  <ProjectExtensions>
-    <MonoDevelop>
-      <Properties>
-        <MonoDevelop.Autotools.MakefileInfo IntegrationEnabled="true" RelativeMakefileName="Makefile.am" BuildTargetName="" CleanTargetName="" SyncReferences="true" IsAutotoolsProject="true" RelativeConfigureInPath="../../../">
-          <BuildFilesVar Sync="true" Name="FILES" />
-          <DeployFilesVar />
-          <ResourcesVar Sync="true" Name="RES" />
-          <OthersVar />
-          <GacRefVar Sync="true" Name="REFS" Prefix="-r:" />
-          <AsmRefVar Sync="true" Name="REFS" Prefix="-r:" />
-          <ProjectRefVar Sync="true" Name="DEPS" />
-        </MonoDevelop.Autotools.MakefileInfo>
-      </Properties>
-    </MonoDevelop>
-  </ProjectExtensions>
   <ItemGroup>
     <None Include="MonoDevelop.AnalysisCore\README.txt" />
     <None Include="MonoDevelop.AnalysisCore\TODO.txt" />
