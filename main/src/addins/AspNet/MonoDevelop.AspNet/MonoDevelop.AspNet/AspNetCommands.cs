@@ -34,5 +34,6 @@ namespace MonoDevelop.AspNet
 	public enum AspNetCommands
 	{
 		AddAspNetDirectory,
+		GenerateLocalResources,
 	}
 }

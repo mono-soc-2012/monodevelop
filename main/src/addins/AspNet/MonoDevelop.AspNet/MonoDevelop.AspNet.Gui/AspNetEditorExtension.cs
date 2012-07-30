@@ -51,6 +51,11 @@ using MonoDevelop.Ide.TypeSystem;
 using ICSharpCode.NRefactory.CSharp;
 using ICSharpCode.NRefactory;
 using ICSharpCode.NRefactory.Completion;
+using MonoDevelop.Components.Commands;
+using MonoDevelop.Xml.StateEngine;
+using System.Resources;
+using System.IO;
+using System.Collections;
 
 namespace MonoDevelop.AspNet.Gui
 {
@@ -853,6 +858,326 @@ namespace MonoDevelop.AspNet.Gui
 			}
 		}
 		
+		#endregion
+
+		#region Generate Resources Wizard
+
+		[CommandUpdateHandler (AspNetCommands.GenerateLocalResources)]
+		protected void OnUpdateGenerateLocalResources (CommandInfo info)
+		{
+			info.Enabled = project != null;
+		}
+
+		[CommandHandler (AspNetCommands.GenerateLocalResources)]
+		protected void OnGenerateLocalResources ()
+		{
+			if (HasDoc == false)
+				return;
+
+			var newResources = new Dictionary <string,string> ();
+			var keysToAdd = new Dictionary <IAttributedXObject, string> ();
+			var pDoc = ((AspNetParsedDocument) Document.ParsedDocument);
+			//ignore case so on writing back keys differing only in case get replaced...
+			var resources = new Dictionary<string, ResXDataNode> (StringComparer.InvariantCultureIgnoreCase); 
+			var keysInUse = GetKeysAndResourcesFromResX (FileName, resources);
+			var nodes = pDoc.XDocument.AllDescendentNodes;
+
+			keysInUse = keysInUse.Union (GetKeysFromSource (nodes)).ToList ();
+			ProcessTreeResources (nodes, newResources, keysInUse, keysToAdd);
+			SaveResources (FileName, resources, newResources);
+			AddResourceKeysToSource (keysToAdd);
+		}
+
+		void AddAttributesToPage (AspNetDirective directive)
+		{
+			// add culture and uiculture attributes
+			var cultAtt = directive.Attributes.FirstOrDefault (a=> a.Name.FullName.ToLower () == "culture");
+			if (cultAtt == null)
+				InsertAttribute (directive, "culture", "auto");
+			var uiCultAtt = directive.Attributes.FirstOrDefault (a=> a.Name.FullName.ToLower () == "uiculture");
+			if (uiCultAtt == null)
+				InsertAttribute (directive, "uiculture", "auto");
+		}
+
+		void AddResourceKeysToSource (Dictionary <IAttributedXObject, string> keysToAdd)
+		{
+			var keyInOrder = keysToAdd;
+
+			foreach (var k in keyInOrder)
+				InsertAttribute (k.Key, "meta:resourcekey", k.Value);
+		}
+
+		string GetResXFilePath (string pageFilePath)
+		{
+			string fileName = Path.GetFileName (pageFilePath);
+			string dir = Path.GetDirectoryName (pageFilePath);
+			return Path.Combine (dir, "App_LocalResources", fileName + ".resx");
+		}
+		/*FIXME: pre the work bringing mono ResXDataNode handling up to date, which is not in mono master at
+		* this time, all resources will be instantiated when they shouldnt. This also means file ref resources
+		* will be embedded on write back. They are unlikely to exist in aspx.resx though?*/
+		List <string> GetKeysAndResourcesFromResX (string filePath, Dictionary <string, ResXDataNode> resources)
+		{
+			// get the "key" portion of res names in resx so when keys get generated later we dont duplicate 
+			// any. Also get existing resources so they can be written back after
+			var list = new List <string> ();
+			string expectedFile = GetResXFilePath (filePath);
+
+			if (!File.Exists (expectedFile))
+				return list;
+
+			/* we need to get resources as ResXDataNodes to preserve file references and avoid instantiating
+			 * valuesthis however leaves no way to tell metadata resources from data resources, so have to 
+			 * enumerate twice. Just deleting the metadata values like VS does as there's no way to write
+			 * them back without instantiating the values and they dont seem to be used for anything anyway
+			 * in aspx.resx files
+			 */
+			List <string> toIgnore = new List <string> ();
+			using (var reader = new ResXResourceReader (expectedFile)) {
+				// UseResXDataNodes false by default, enabling use of extra enumerator
+				IDictionaryEnumerator en = reader.GetMetadataEnumerator();
+				while (en.MoveNext ())
+					toIgnore.Add ((string) en.Entry.Key);
+			}
+
+			using (var reader = new ResXResourceReader (expectedFile)) {
+				reader.UseResXDataNodes = true;
+				foreach (DictionaryEntry d in reader) {
+					string name = (string) d.Key;
+					if (toIgnore.Contains (name, StringComparer.InvariantCultureIgnoreCase))
+						continue;
+					resources.Add (name, (ResXDataNode) d.Value);
+					int dotPos = name.IndexOf (".");
+					string key = (dotPos == -1) ? name : name.Substring (0, dotPos);
+					if (!list.Contains (key))
+							list.Add (key);
+				}
+			}
+			return list;
+		}
+
+		List <string> GetKeysFromSource (IEnumerable <XNode> nodes)
+		{
+			// check the whole doc so when keys start to be generated we can check there are no dupes
+			List <string> list = new List <string> ();
+			foreach (var node in nodes) {
+				if (node is XElement) {
+					var element = (XElement) node;
+					if (element.Name.HasPrefix || IsRunAtServer (element)) {
+						var att = element.Attributes.FirstOrDefault (a=>a.Name.FullName.ToLower () == "meta:resourcekey");
+						if (att != null)
+							list.Add (att.Value);
+					}
+				} else if (node is AspNetDirective) {
+					var directive = (AspNetDirective) node;
+					if (directive.Name.FullName.ToLower () == "page") {
+						var att = directive.Attributes.FirstOrDefault (a=>a.Name.FullName.ToLower () == "meta:resourcekey");
+						if (att != null)
+							list.Add (att.Value);
+					}
+				}
+			}
+			return list;
+		}
+
+		void SaveResources (string pageFilePath, Dictionary <string, ResXDataNode> resources, 
+		                    Dictionary <string, string> newResources)
+		{
+			string fileName = Path.GetFileName (pageFilePath);
+			string resDir = Path.Combine (Path.GetDirectoryName (pageFilePath), "App_LocalResources");
+			string expectedFile = Path.Combine (resDir, fileName + ".resx");
+
+			string baseDir = project.BaseDirectory;
+			string relNewDir = resDir.Substring (project.BaseDirectory.ToString ().Length + 1);
+			bool addfile = false;
+
+			if (!Directory.Exists (resDir)) {
+				Directory.CreateDirectory (resDir);
+				project.AddDirectory (relNewDir);
+				addfile = true; //project will be saved when file added
+			}
+
+			StreamWriter sw;
+			int fileCounter = 0;
+			string tempFileName = "";
+			
+			// get a temp file for safe write
+			try {
+				do  {
+					fileCounter++;
+					tempFileName = expectedFile + fileCounter.ToString();
+				} while (File.Exists (tempFileName));
+				sw = new StreamWriter (tempFileName);
+			}
+			catch (Exception ex) {
+				LoggingService.LogError ("Unhandled error creating temp file " + 
+				                         "while saving RESX catalog '{0}': {1}", tempFileName, ex);
+				return;
+			}
+
+			// add new resources, replacing any that already existed
+			foreach (var newR in newResources)
+				resources [newR.Key] = new ResXDataNode (newR.Key, newR.Value);
+
+			if (!File.Exists (expectedFile)) 
+				addfile = true;
+
+			using (sw) {
+				using (var writer = new ResXResourceWriter (sw)) {
+					foreach (var r in resources.OrderBy (r => r.Key)) //order by name
+						writer.AddResource (r.Value);
+				}
+			}
+
+			try {
+				File.Copy (tempFileName, expectedFile, true);
+				if (addfile) {
+					project.AddFile (expectedFile, "Content");
+					project.Save (null);
+				}
+			}
+			catch (Exception ex){
+				LoggingService.LogError ("Unhandled error saving ResX File to '{0}': {1}", 
+				                         expectedFile, ex);
+			}	
+			finally {
+				File.Delete(tempFileName);
+			}
+		}
+
+		void ProcessTreeResources (IEnumerable<XNode> nodes, Dictionary <string,string> newResources, 
+		                           List<string> keysInUse, Dictionary <IAttributedXObject, string> keysToAdd)
+		{
+			foreach (var node in nodes) {
+				if (node is XElement) {
+					var element = (XElement) node;
+					if (element.Name.HasPrefix || IsRunAtServer (element)) {
+						ProcessControlResources (element, newResources, keysInUse, keysToAdd);
+					}
+				} else if (node is AspNetDirective) {
+					var directive = (AspNetDirective) node;
+					AddAttributesToPage (directive);
+					if (directive.Name.FullName.ToLower () == "page") 
+						AddResourceForPageDir (directive, newResources, keysInUse, keysToAdd);
+				}
+			}
+		}
+		
+		void ProcessControlResources (XElement node, Dictionary <string,string> newResources, 
+		                              List<string> keysInUse, Dictionary <IAttributedXObject, string> keysToAdd)
+		{
+			var refMan = new DocumentReferenceManager (this.project);
+			string key = null;
+
+			//Note: HTMLControls also get resources generated unlike in VS
+			IType control = refMan.GetType (node.Name.Prefix, node.Name.Name, null);
+			
+			foreach (var prop in control.GetProperties ()) {
+				var lAtt = prop.Attributes.FirstOrDefault (a => a.AttributeType.FullName == "System.ComponentModel.LocalizableAttribute");
+
+				if (lAtt != null && ((bool) lAtt.PositionalArguments [0].ConstantValue) == true) {
+					if (key == null)
+						key = GetResourceKey (node, keysInUse, keysToAdd);
+					//FIXME: few of the properties of mono web controls have DefaultAttribute set
+					var dAtt = prop.Attributes.FirstOrDefault (a => a.AttributeType.FullName == "System.ComponentModel.DefaultValueAttribute");
+					string def = (dAtt == null) ? String.Empty : Convert.ToString (dAtt.PositionalArguments [0].ConstantValue); 
+					ProcessPropertyResource (node, prop.Name, newResources, key, def);
+				}
+			}
+		}
+
+		string GetResourceKey (IAttributedXObject node, List <string> keysInUse, 
+		                       Dictionary <IAttributedXObject, string> keysToAdd)
+		{
+			XAttribute rAtt = node.Attributes.FirstOrDefault (n=> n.Name.FullName.ToLower () == "meta:resourcekey");
+			if (rAtt != null)
+				return rAtt.Value;
+
+			string prefix, temp;
+			int i = 0;
+			XAttribute idAtt = node.Attributes.FirstOrDefault (n=> n.Name.FullName.ToLower () == "id");
+			if (idAtt == null)
+				prefix = node.Name.Name + "Resource";
+			else
+				prefix = idAtt.Value + "Resource";
+
+			do {
+				i++;
+				temp = prefix + i;
+			} while (keysInUse.Contains (temp, StringComparer.InvariantCultureIgnoreCase));
+			
+			keysToAdd.Add (node, temp);
+			keysInUse.Add (temp);
+			return temp;
+		}
+
+		void ProcessPropertyResource (XElement node, string property, Dictionary <string,string> newResources, 
+		                              string key, string def)
+		{
+			XAttribute pAtt = node.Attributes.FirstOrDefault (a=> a.Name.FullName.ToLower () == property.ToLower ());
+			if (pAtt == null)
+				newResources.Add (key + "." + property, def);
+			else
+				newResources.Add (key + "." + property, pAtt.Value);
+		}
+		
+		void AddResourceForPageDir (AspNetDirective directive, Dictionary <string,string> newResources, 
+		                            List<string> keysInUse, 
+					    Dictionary <IAttributedXObject, string> keysToAdd)
+		{
+			string key = GetResourceKey (directive, keysInUse, keysToAdd);
+			//hard coded check for Title
+			XAttribute pAtt = directive.Attributes.FirstOrDefault (a=> a.Name.FullName.ToLower () == "title");
+			if (pAtt == null)
+				newResources.Add (key + ".Title", String.Empty);
+			else
+				newResources.Add (key + ".Title", pAtt.Value);
+		}
+		
+		bool IsRunAtServer (XElement el)
+		{
+			XName runat = new XName ("runat");
+			foreach (XAttribute attr in el.Attributes) {
+				if ((attr.Name.ToLower () == runat) && (attr.Value.ToLower () == "server"))
+					return true;
+			}
+			return false;
+		}
+
+		// adds an attribute to the end of the openning  tag (taken from dodev's AspNetEdit plugin)
+		void InsertAttribute (IAttributedXObject el, string key, string value)
+		{
+			if (!(el is XElement) && !(el is AspNetDirective))
+				throw new ArgumentException ("el", 
+				                             "Only XElement and AspNetDirective supported by method");
+
+			var xel = (XNode) el;
+
+			int line = xel.Region.EndLine;
+			int column = 1;
+			string preambula = string.Empty;
+			string ending = string.Empty;
+
+			if (xel is AspNetDirective || ((XElement) xel).IsSelfClosing ) {
+				column = xel.Region.EndColumn - 2; // "/>" or "%>"
+				ending = " ";
+			} else {
+				column = xel.Region.EndColumn -1; // ">"
+			}
+			
+			if (column > 1) {
+				string whatsBeforeUs = Editor.GetTextBetween (line, column - 1, line, column);
+				if (!string.IsNullOrWhiteSpace (whatsBeforeUs))
+					preambula = " ";
+			}
+			Gtk.Application.Invoke (delegate {
+				Editor.SetCaretTo (line, column);
+				Editor.InsertAtCaret (string.Format ("{0}{1}=\"{2}\"{3}", preambula, key, value, ending));
+			});
+			
+			Document.IsDirty = true;
+		}
+
 		#endregion
 	}
 }

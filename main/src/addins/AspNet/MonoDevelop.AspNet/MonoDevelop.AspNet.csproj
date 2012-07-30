@@ -118,6 +118,7 @@
       <Private>False</Private>
     </Reference>
     <Reference Include="Mono.Posix" />
+    <Reference Include="System.Windows.Forms" />
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="MonoDevelop.AspNet.addin.xml">
