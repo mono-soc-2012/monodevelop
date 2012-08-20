@@ -3,6 +3,7 @@
 // 
 // Author:
 //   Michael Hutchinson <mhutchinson@novell.com>
+//   Gary Barnett <gary.barnett.mono@gmail.com>
 // 
 // Copyright (C) 2008 Novell, Inc (http://www.novell.com)
 // 
